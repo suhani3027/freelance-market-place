@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
-import StarRating from '../../components/StarRating';
-import ReviewList from '../../components/ReviewList';
+import StarRating from '../../../components/StarRating';
+import ReviewList from '../../../components/ReviewList';
 
 interface Review {
   _id: string;
