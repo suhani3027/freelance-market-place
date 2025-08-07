@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import ChatUI from '../../../../components/chatUI';
+import ChatUI from './chatUI_';
 
 const ClientChatPage = () => {
   const { freelancerId } = useParams();
