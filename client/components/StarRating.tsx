@@ -9,10 +9,10 @@ interface StarRatingProps {
 }
 
 export default function StarRating({ 
-  rating, 
-  onRatingChange, 
-  readonly = false, 
-  size = 'md' 
+  rating,
+  onRatingChange,
+  readonly = false,
+  size = 'md'
 }: StarRatingProps) {
   const [hoverRating, setHoverRating] = useState(0);
 
