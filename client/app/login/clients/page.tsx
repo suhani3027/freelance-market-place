@@ -11,17 +11,31 @@ export default function ClientLogin() {
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
-    // Replace with real API call
-    // For demo, accept any email/password
-    if (form.email && form.password) {
-      localStorage.setItem("token", "client-token");
-      localStorage.setItem("role", "client");
-      localStorage.setItem("email", form.email);
-      localStorage.setItem("name", form.email.split("@")[0]);
-      localStorage.setItem("profilePhoto", "https://via.placeholder.com/100?text=Client");
-      router.push("/dashboard");
-    } else {
+    if (!form.email || !form.password) {
       setMessage("Please enter email and password.");
+      return;
+    }
+
+    try {
+      const res = await fetch('http://localhost:5000/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("role", data.role || "client");
+        localStorage.setItem("email", data.email || form.email);
+        localStorage.setItem("name", data.name || form.email.split("@")[0]);
+        localStorage.setItem("profilePhoto", "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png");
+        router.push("/dashboard");
+      } else {
+        setMessage(data.message || "Login failed.");
+      }
+    } catch (err) {
+      setMessage("Server error. Please try again.");
     }
   };
 

@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema({
   companySize: String,
   website: String,
   businessDescription: String,
+  role: { type: String, enum: ['client', 'freelancer'], default: 'client' },
 });
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);

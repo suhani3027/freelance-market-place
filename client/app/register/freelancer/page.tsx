@@ -37,13 +37,28 @@ export default function FreelancerRegister() {
       if (!res.ok) {
         setError(data.message || 'Registration failed.');
       } else {
-        // Save role and redirect
-        localStorage.setItem('token', 'freelancer-token');
-        localStorage.setItem('role', 'freelancer');
-        localStorage.setItem('email', email);
-        localStorage.setItem('name', name);
-        localStorage.setItem('profilePhoto', 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png');
-        router.push('/welcome');
+        // After registration, automatically log in to get a proper JWT token
+        try {
+          const loginRes = await fetch('http://localhost:5000/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          });
+          const loginData = await loginRes.json();
+          if (loginRes.ok) {
+            localStorage.setItem('token', loginData.token);
+            localStorage.setItem('role', 'freelancer');
+            localStorage.setItem('email', email);
+            localStorage.setItem('name', name);
+            localStorage.setItem('profilePhoto', 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png');
+            router.push('/welcome');
+          } else {
+            // If auto-login fails, redirect to login page
+            router.push('/login');
+          }
+        } catch (loginErr) {
+          router.push('/login');
+        }
       }
     } catch (err) {
       setError('Server error. Please try again later.');

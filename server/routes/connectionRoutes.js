@@ -19,6 +19,9 @@ router.get('/list', authenticateJWT, connectionController.listConnections);
 // List all pending requests for the user
 router.get('/pending', authenticateJWT, connectionController.listPending);
 
+// Get connection status between two users
+router.get('/status/:userId', authenticateJWT, connectionController.getConnectionStatus);
+
 // Check if connected with another user
 router.get('/check/:userId', authenticateJWT, connectionController.checkConnection);
 

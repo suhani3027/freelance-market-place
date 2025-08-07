@@ -1,310 +1,312 @@
 "use client";
-
-import React, { useEffect, useState, useRef } from "react";
-import { getSocket } from "../services/socket";
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 interface Message {
-  sender: string;
-  receiver: string;
-  content: string;
-  timestamp: string;
-  _id?: string;
-}
-
-function getRoomName(user1: string, user2: string) {
-  return [user1, user2].sort().join("_");
-}
-
-export default function MessagesPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [receiver, setReceiver] = useState("");
-  const [selectedUser, setSelectedUser] = useState<string | null>(null);
-  const [userNames, setUserNames] = useState<{ [email: string]: string }>({});
-  const [allUsers, setAllUsers] = useState<{ name: string; email: string }[]>([]);
-  const [canChat, setCanChat] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
-  const sender = typeof window !== "undefined" ? localStorage.getItem("email") || "" : "";
-  const socketRef = useRef<any>(null);
-  const currentRoom = useRef<string | null>(null);
-
-  // Helper to fetch and cache user name
-  const fetchUserName = async (email: string) => {
-    if (!email || userNames[email]) return;
-    try {
-      const res = await fetch(`http://localhost:5000/api/user/${encodeURIComponent(email)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setUserNames((prev) => ({ ...prev, [email]: data.name || email }));
-      }
-    } catch {
-      // fallback: use email
-      setUserNames((prev) => ({ ...prev, [email]: email }));
-    }
+  _id: string;
+  sender: {
+    _id: string;
+    name: string;
+    email: string;
   };
+  recipient: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  content: string;
+  read: boolean;
+  createdAt: string;
+}
+
+interface Conversation {
+  connectionId: string;
+  otherUser: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  latestMessage?: Message;
+  unreadCount: number;
+}
+
+const MessagesPage = () => {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  const searchParams = useSearchParams();
+  const initialUser = searchParams?.get('user');
 
   useEffect(() => {
-    const socket = getSocket();
-    socketRef.current = socket;
-
-    socket.on("receiveMessage", (msg: Message) => {
-      setMessages((prev) => {
-        if (prev.some(m => m._id === msg._id || (m.timestamp === msg.timestamp && m.content === msg.content))) {
-          return prev;
-        }
-        return [...prev, msg];
-      });
-      // Fetch names for sender/receiver
-      fetchUserName(msg.sender);
-      fetchUserName(msg.receiver);
-    });
-
-    return () => {
-      socket.off("receiveMessage");
-    };
-    // eslint-disable-next-line 
+    if (typeof window !== 'undefined') {
+      setUserEmail(localStorage.getItem('email'));
+    }
   }, []);
 
-  // Fetch message history and user names when selectedUser changes
   useEffect(() => {
-    if (selectedUser && sender) {
-      const room = getRoomName(sender, selectedUser);
-      currentRoom.current = room;
-      socketRef.current.emit("joinRoom", room);
-      fetch(`http://localhost:5000/messages/${encodeURIComponent(sender)}/${encodeURIComponent(selectedUser)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (Array.isArray(data)) {
-            setMessages(data);
-            // Fetch names for all users in the thread
-            data.forEach((msg: Message) => {
-              fetchUserName(msg.sender);
-              fetchUserName(msg.receiver);
-            });
-          }
-        });
-      // Also fetch name for sidebar
-      fetchUserName(selectedUser);
-      fetchUserName(sender);
-    }
-    // eslint-disable-next-line
-  }, [selectedUser, sender]);
+    fetchConversations();
+  }, []);
 
-  // Check connection status when selectedUser changes
   useEffect(() => {
-    if (selectedUser && sender) {
-      const checkConnection = async () => {
-        try {
-          const token = localStorage.getItem('token');
-          const res = await fetch(`http://localhost:5000/api/connections/check/${encodeURIComponent(selectedUser)}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          const result = await res.json();
-          if (result.connected) {
-            setCanChat(true);
-            setConnectionStatus('accepted');
-          } else {
-            // Check for pending/rejected requests
-            const pendingRes = await fetch('http://localhost:5000/api/connections/pending', {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const pendingList = await pendingRes.json();
-            const pending = pendingList.find((c: any) => c.requester.email === sender && c.recipient.email === selectedUser);
-            if (pending) {
-              setCanChat(false);
-              setConnectionStatus(pending.status);
-            } else {
-              setCanChat(false);
-              setConnectionStatus(null);
-            }
-          }
-        } catch {
-          setCanChat(false);
-          setConnectionStatus(null);
-        }
-      };
-      checkConnection();
-    } else {
-      setCanChat(true);
-      setConnectionStatus(null);
+    if (initialUser) {
+      // Find conversation with this user
+      const conversation = conversations.find(conv => conv.otherUser.email === initialUser);
+      if (conversation) {
+        setSelectedConversation(conversation);
+        fetchMessages(conversation.otherUser.email);
+      }
     }
-  }, [selectedUser, sender]);
+  }, [conversations, initialUser]);
 
-  // Fetch all users for chat partner selection
-  useEffect(() => {
-    fetch('http://localhost:5000/api/users')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setAllUsers(data.filter(u => u.email !== sender));
-        }
+  const fetchConversations = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || token === 'client-token' || token === 'freelancer-token' || !token.startsWith('eyJ')) {
+        setError('Please log in to view messages');
+        setLoading(false);
+        return;
+      }
+
+      const res = await fetch('http://localhost:5000/api/messages/conversations', {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-  }, [sender]);
 
-  const sendMessage = () => {
-    if (!input.trim() || !selectedUser || !canChat) return;
-    const msg: Message = {
-      sender,
-      receiver: selectedUser,
-      content: input,
-      timestamp: new Date().toISOString(),
-    };
-    const room = getRoomName(sender, selectedUser);
-    socketRef.current.emit("sendMessage", { msg, room });
-    setMessages((prev) => [...prev, msg]);
-    setInput("");
-    fetchUserName(selectedUser);
-    fetchUserName(sender);
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data);
+      } else {
+        setError('Failed to load conversations');
+      }
+    } catch (err) {
+      setError('Failed to load conversations');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Get unique conversation partners (the 'other' user in each message)
-  const conversationUsers = Array.from(
-    new Set(
-      messages
-        .map((msg) => (msg.sender === sender ? msg.receiver : msg.sender))
-        .filter((user) => user && user !== sender)
-    )
-  );
+  const fetchMessages = async (otherUserEmail: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:5000/api/messages/conversation/${encodeURIComponent(otherUserEmail)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
 
-  // Filter messages for the selected conversation
-  const thread = selectedUser
-    ? messages.filter(
-        (msg) =>
-          (msg.sender === sender && msg.receiver === selectedUser) ||
-          (msg.sender === selectedUser && msg.receiver === sender)
-      )
-    : [];
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data);
+        
+        // Mark messages as read
+        await fetch(`http://localhost:5000/api/messages/read/${encodeURIComponent(otherUserEmail)}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        // Refresh conversations to update unread counts
+        fetchConversations();
+      } else {
+        setError('Failed to load messages');
+      }
+    } catch (err) {
+      setError('Failed to load messages');
+    }
+  };
 
-  // Get the 'other' user's info for the thread header
-  const otherUser = selectedUser;
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !selectedConversation) return;
+    
+    setSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/messages/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          recipientEmail: selectedConversation.otherUser.email,
+          content: newMessage.trim()
+        })
+      });
+
+      if (res.ok) {
+        const sentMessage = await res.json();
+        setMessages(prev => [...prev, sentMessage]);
+        setNewMessage('');
+        
+        // Refresh conversations to update latest message
+        fetchConversations();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Failed to send message');
+      }
+    } catch (err) {
+      alert('Failed to send message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleConversationSelect = (conversation: Conversation) => {
+    setSelectedConversation(conversation);
+    fetchMessages(conversation.otherUser.email);
+  };
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-64">Loading messages...</div>;
+  }
+
+  if (error) {
+    return <div className="text-red-500 text-center mt-8">{error}</div>;
+  }
+
+  if (conversations.length === 0) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4">
+        <h1 className="text-3xl font-bold mb-6">Messages</h1>
+        <div className="text-center text-gray-500">
+          <p>No conversations yet.</p>
+          <p className="mt-2">Connect with other users to start messaging!</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-[80vh] w-full bg-gray-50">
-      {/* Sidebar */}
-      <aside className="w-80 bg-white border-r flex flex-col p-6">
-        <h2 className="text-2xl font-semibold mb-4">Messages</h2>
-        <div className="flex items-center mb-4">
-          <input
-            type="text"
-            placeholder="Search"
-            className="flex-1 border rounded-lg px-3 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-          />
-          <button className="ml-2 p-2 rounded hover:bg-gray-100">
-            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-2-2"/></svg>
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          {conversationUsers.length === 0 ? (
-            <span className="text-gray-400">Conversations will appear here</span>
-          ) : (
-            <ul>
-              {conversationUsers.map((user) => (
-                <li
-                  key={user}
-                  className={`p-2 rounded cursor-pointer mb-2 ${selectedUser === user ? "bg-green-100" : "hover:bg-gray-100"}`}
-                  onClick={() => setSelectedUser(user)}
-                >
-                  {userNames[user] || user}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        {/* User selection dropdown for new chat */}
-        <div className="mt-4">
-          <select
-            className="w-full border rounded px-3 py-2"
-            value={receiver}
-            onChange={e => {
-              setReceiver(e.target.value);
-              setSelectedUser(e.target.value);
-            }}
-          >
-            <option value="">Start new chat...</option>
-            {allUsers.map(user => (
-              <option key={user.email} value={user.email}>
-                {user.name} ({user.email})
-              </option>
-            ))}
-          </select>
-        </div>
-      </aside>
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center">
-        {selectedUser ? (
-          <div className="w-full max-w-2xl flex flex-col h-full">
-            {/* Thread header with the other user's info */}
-            <div className="p-4 border-b text-lg font-semibold text-gray-700 bg-white">{userNames[otherUser] || otherUser}</div>
-            <div className="flex-1 overflow-y-auto p-4">
-              {thread.map((msg, idx) => (
-                <div key={msg._id || idx} className={`mb-2 ${msg.sender === sender ? "text-right" : "text-left"}`}>
-                  <div className="inline-block bg-white rounded px-4 py-2 shadow">
-                    <div className="text-xs text-gray-500 mb-1">
-                      <span>{msg.sender === sender ? "You" : (userNames[msg.sender] || msg.sender)} → {msg.receiver === sender ? "You" : (userNames[msg.receiver] || msg.receiver)}</span>
-                      <span className="ml-2">{new Date(msg.timestamp).toLocaleString()}</span>
+    <div className="max-w-6xl mx-auto py-8 px-4">
+      <h1 className="text-3xl font-bold mb-6">Messages</h1>
+      
+      <div className="flex h-[600px] bg-white rounded-lg shadow-lg overflow-hidden">
+        {/* Conversations List */}
+        <div className="w-1/3 border-r border-gray-200">
+          <div className="p-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold">Conversations</h2>
+          </div>
+          <div className="overflow-y-auto h-full">
+            {conversations.map((conversation) => (
+              <div
+                key={conversation.connectionId}
+                onClick={() => handleConversationSelect(conversation)}
+                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                  selectedConversation?.connectionId === conversation.connectionId ? 'bg-blue-50' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
+                      <span className="text-sm font-medium text-gray-700">
+                        {conversation.otherUser.name?.charAt(0) || conversation.otherUser.email.charAt(0)}
+                      </span>
                     </div>
-                    <div>{msg.content}</div>
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        {conversation.otherUser.name || conversation.otherUser.email.split('@')[0]}
+                      </div>
+                      {conversation.latestMessage && (
+                        <div className="text-sm text-gray-500 truncate max-w-[200px]">
+                          {conversation.latestMessage.content}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {conversation.unreadCount > 0 && (
+                    <div className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                      {conversation.unreadCount}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Messages Area */}
+        <div className="flex-1 flex flex-col">
+          {selectedConversation ? (
+            <>
+              {/* Header */}
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-medium text-gray-700">
+                      {selectedConversation.otherUser.name?.charAt(0) || selectedConversation.otherUser.email.charAt(0)}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-medium">
+                      {selectedConversation.otherUser.name || selectedConversation.otherUser.email.split('@')[0]}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {selectedConversation.otherUser.email}
+                    </div>
                   </div>
                 </div>
-              ))}
-            </div>
-            {/* Chat input, only if connected */}
-            <div className="p-4 border-t bg-white flex items-center gap-2">
-              {!canChat ? (
-                <div className="text-red-500 flex-1">
-                  {connectionStatus === 'pending' && 'You must wait for your connection request to be accepted to chat.'}
-                  {connectionStatus === 'rejected' && 'Your connection request was rejected. You cannot chat.'}
-                  {connectionStatus === null && 'You must connect with this user to chat.'}
-                </div>
-              ) : (
-                <>
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.map((message) => (
+                  <div
+                    key={message._id}
+                    className={`flex ${message.sender.email === userEmail ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                        message.sender.email === userEmail
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-900'
+                      }`}
+                    >
+                      <div className="text-sm">{message.content}</div>
+                      <div className={`text-xs mt-1 ${
+                        message.sender.email === userEmail ? 'text-blue-100' : 'text-gray-500'
+                      }`}>
+                        {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Message Input */}
+              <div className="p-4 border-t border-gray-200">
+                <div className="flex space-x-2">
                   <input
                     type="text"
-                    className="flex-1 border rounded px-3 py-2"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
-                    placeholder="Type your message..."
-                    disabled={!canChat}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                    placeholder="Type a message..."
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
-                    className="bg-green-600 text-white px-4 py-2 rounded disabled:opacity-50"
                     onClick={sendMessage}
-                    disabled={!canChat || !input.trim()}
+                    disabled={sending || !newMessage.trim()}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Send
+                    {sending ? 'Sending...' : 'Send'}
                   </button>
-                </>
-              )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-500">
+              <div className="text-center">
+                <div className="text-4xl mb-4">💬</div>
+                <p>Select a conversation to start messaging</p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full w-full">
-            <svg width="60" height="60" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" className="mb-6 text-gray-300">
-              <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M3 7l9 6 9-6" stroke="currentColor" strokeWidth="1.5"/>
-            </svg>
-            <h1 className="text-2xl font-semibold mb-2 text-gray-700">Welcome to Messages</h1>
-            <p className="text-gray-500 mb-6 text-center max-w-md">Once you connect with a freelancer, you’ll be able to chat and collaborate here</p>
-            {/* Dropdown replaces manual input */}
-            <select
-              className="border rounded px-3 py-2 mb-2"
-              value={receiver}
-              onChange={e => {
-                setReceiver(e.target.value);
-                setSelectedUser(e.target.value);
-              }}
-            >
-              <option value="">Start new chat...</option>
-              {allUsers.map(user => (
-                <option key={user.email} value={user.email}>
-                  {user.name} ({user.email})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </main>
+          )}
+        </div>
+      </div>
     </div>
   );
-}
+};
+
+export default MessagesPage;

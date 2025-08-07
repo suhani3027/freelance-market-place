@@ -425,6 +425,7 @@ export default function FreelancerQuestions() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       userId,
+                      email: userId, // This is correct since userId is the email
                       profilePhoto: profilePhotoPreview,
                       fullName,
                       location,

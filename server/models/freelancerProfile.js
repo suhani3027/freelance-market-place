@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const freelancerProfileSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
+  email: { type: String, unique: true },
   profilePhoto: { type: String },
   fullName: { type: String },
   location: { type: String },
@@ -19,6 +20,11 @@ const freelancerProfileSchema = new mongoose.Schema({
   portfolio: [{ title: String, description: String, url: String, image: String }],
   languages: [{ name: String, proficiency: String }],
   socialLinks: [{ platform: String, url: String }],
+  role: { type: String, enum: ['client', 'freelancer'], default: 'freelancer' },
+  companyName: { type: String },
+  companySize: { type: String },
+  website: { type: String },
+  businessDescription: { type: String },
 }, { timestamps: true });
 
 const FreelancerProfile = mongoose.models.FreelancerProfile || mongoose.model("FreelancerProfile", freelancerProfileSchema);
