@@ -94,14 +94,14 @@ const CategoryPage = () => {
         setGigs(sortedGigs);
         
         // Fetch client info for each gig
-        const uniqueClientIds = Array.from(new Set(filteredGigs.map((gig: Gig) => gig.clientId)));
+        const uniqueClientIds = Array.from(new Set(filteredGigs.map((gig: Gig) => gig.clientId).filter(Boolean)));
         const infos: { [email: string]: ClientInfo } = {};
         await Promise.all(uniqueClientIds.map(async (email) => {
           try {
-            const res = await fetch(`${apiUrl}/api/user/${encodeURIComponent(email)}`);
+            const res = await fetch(`${apiUrl}/api/user/${encodeURIComponent(String(email))}`);
             if (res.ok) {
               const info = await res.json();
-              infos[email] = info;
+              infos[email as string] = info;
             }
           } catch {}
         }));
