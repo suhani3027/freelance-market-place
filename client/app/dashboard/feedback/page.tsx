@@ -43,7 +43,7 @@ export default function FeedbackDashboard() {
   const loadReviews = async (userEmail: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:5000/api/reviews/freelancer/${encodeURIComponent(userEmail)}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/reviews/freelancer/${encodeURIComponent(userEmail)}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -63,7 +63,7 @@ export default function FeedbackDashboard() {
 
   const handleMarkHelpful = async (reviewId: string) => {
     try {
-      await fetch(`http://localhost:5000/api/reviews/${reviewId}/helpful`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/reviews/${reviewId}/helpful`, {
         method: 'PUT'
       });
       // Refresh reviews to show updated helpful count

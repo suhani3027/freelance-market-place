@@ -18,7 +18,7 @@ function PaymentSuccessContent() {
   const confirmPayment = async () => {
     try {
       // Confirm payment with backend
-      const response = await fetch('http://localhost:5000/api/payments/confirm-payment', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/payments/confirm-payment`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -41,7 +41,7 @@ export default function ProposalForm({
 
   const fetchFreelancerProfile = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/freelancer-profile/me', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/freelancer-profile/me`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
