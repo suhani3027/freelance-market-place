@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useParams, useSearchParams } from 'next/navigation';
 
 interface Gig {
@@ -34,7 +34,7 @@ const categorySkills: { [key: string]: string[] } = {
   data: ['Data Analysis', 'Data Science', 'Machine Learning', 'Excel', 'SQL', 'Python', 'R', 'Statistics', 'Data Visualization', 'Big Data', 'Analytics']
 };
 
-const CategoryPage = () => {
+function CategoryContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const category = params.category as string;
@@ -273,6 +273,21 @@ const CategoryPage = () => {
         </div>
       )}
     </div>
+  );
+}
+
+const CategoryPage = () => {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading category...</p>
+        </div>
+      </div>
+    }>
+      <CategoryContent />
+    </Suspense>
   );
 };
 

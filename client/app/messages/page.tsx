@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface Message {
@@ -30,7 +30,7 @@ interface Conversation {
   unreadCount: number;
 }
 
-const MessagesPage = () => {
+function MessagesContent() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -306,6 +306,21 @@ const MessagesPage = () => {
         </div>
       </div>
     </div>
+  );
+}
+
+const MessagesPage = () => {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center items-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading messages...</p>
+        </div>
+      </div>
+    }>
+      <MessagesContent />
+    </Suspense>
   );
 };
 

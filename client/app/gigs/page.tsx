@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from 'next/navigation';
 
 interface Gig {
@@ -21,7 +21,7 @@ interface ClientInfo {
   email: string;
 }
 
-const GigListPage = () => {
+function GigListContent() {
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +37,8 @@ const GigListPage = () => {
   const [freelancerId, setFreelancerId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [proposalCounts, setProposalCounts] = useState<{ [gigId: string]: number }>({});
+
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     const fetchGigs = async () => {
@@ -100,7 +102,7 @@ const GigListPage = () => {
         });
       }
     }
-  }, [gigs.length]);
+  }, [gigs]);
 
   // Show all gigs for freelancers, or only client's own gigs for clients
   let gigsToShow: Gig[] = gigs;
@@ -108,7 +110,6 @@ const GigListPage = () => {
     gigsToShow = clientId ? gigs.filter(gig => gig.clientId === clientId) : [];
   }
   // For freelancers, show all gigs (they can apply to any gig)
-  const searchParams = useSearchParams();
   const search = searchParams?.get('search')?.toLowerCase() || '';
   const filteredGigs = search
     ? gigsToShow.filter(gig => {
@@ -313,6 +314,21 @@ const GigListPage = () => {
         </div>
       )}
     </div>
+  );
+}
+
+const GigListPage = () => {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading gigs...</p>
+        </div>
+      </div>
+    }>
+      <GigListContent />
+    </Suspense>
   );
 };
 

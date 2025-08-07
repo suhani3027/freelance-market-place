@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 interface Profile {
@@ -31,7 +31,7 @@ interface Profile {
   website?: string;
 }
 
-const ProfilePage = () => {
+function ProfileContent() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -489,6 +489,21 @@ const ProfilePage = () => {
         </div>
       </div>
     </div>
+  );
+}
+
+const ProfilePage = () => {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading profile...</p>
+        </div>
+      </div>
+    }>
+      <ProfileContent />
+    </Suspense>
   );
 };
 

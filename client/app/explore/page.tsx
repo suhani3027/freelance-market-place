@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
@@ -28,7 +28,7 @@ interface User {
   userType?: string;
 }
 
-export default function Explore() {
+function ExploreContent() {
   const [users, setUsers] = useState<User[]>([]);
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [recentGigs, setRecentGigs] = useState<Gig[]>([]);
@@ -98,8 +98,7 @@ export default function Explore() {
       const res = await fetch('http://localhost:5000/api/gigs');
       if (res.ok) {
         const data = await res.json();
-        // Get the 6 most recent gigs
-        setRecentGigs(data.slice(0, 6));
+        setRecentGigs(data.slice(0, 6)); // Show only 6 recent gigs
       }
     } catch (error) {
       console.error("Error loading recent gigs:", error);
@@ -112,7 +111,7 @@ export default function Explore() {
     e.preventDefault();
     if (searchQuery.trim()) {
       if (searchType === 'users') {
-      searchUsers(searchQuery);
+        searchUsers(searchQuery);
       } else {
         searchGigs(searchQuery);
       }
@@ -123,7 +122,7 @@ export default function Explore() {
     setSelectedUser(user);
     setShowProfile(true);
     
-    // Load user's gigs
+    // Fetch user's gigs
     try {
       const res = await fetch(`http://localhost:5000/api/gigs?clientId=${encodeURIComponent(user.email)}`);
       if (res.ok) {
@@ -131,7 +130,7 @@ export default function Explore() {
         setUserGigs(data);
       }
     } catch (error) {
-      console.error("Error loading user gigs:", error);
+      console.error("Error fetching user gigs:", error);
     }
   };
 
@@ -589,4 +588,19 @@ export default function Explore() {
       </div>
     </div>
   );
-} 
+}
+
+export default function Explore() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <ExploreContent />
+    </Suspense>
+  );
+}
