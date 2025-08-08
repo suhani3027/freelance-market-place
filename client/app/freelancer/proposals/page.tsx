@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation';
 interface Proposal {
   _id: string;
   gigId: string;
-  clientId: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'completed';
+  freelancerId: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'paid';
   proposal: string;
   bidAmount: number;
   estimatedDuration: string;
@@ -28,23 +28,34 @@ interface Proposal {
     description: string;
     amount: number;
   };
+  orderId?: string;
 }
 
-export default function FreelancerProposals() {
+export default function ClientProposals() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [completingProposal, setCompletingProposal] = useState<string | null>(null);
+  const [processingPayment, setProcessingPayment] = useState<string | null>(null);
   const router = useRouter();
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
   useEffect(() => {
     fetchProposals();
+    
+    // Check if we need to refresh after payment
+    const shouldRefresh = sessionStorage.getItem('refreshProposals');
+    if (shouldRefresh === 'true') {
+      sessionStorage.removeItem('refreshProposals');
+      // Small delay to ensure backend has updated
+      setTimeout(() => {
+        fetchProposals();
+      }, 1000);
+    }
   }, []);
 
   const fetchProposals = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/proposals/freelancer`, {
+      const response = await fetch(`${apiUrl}/api/proposals/client`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -61,31 +72,55 @@ export default function FreelancerProposals() {
     }
   };
 
-  const markAsCompleted = async (proposalId: string) => {
-    setCompletingProposal(proposalId);
+  const handlePayment = async (proposal: Proposal) => {
+    setProcessingPayment(proposal._id);
     try {
-      const response = await fetch(`${apiUrl}/api/proposals/${proposalId}/complete`, {
-        method: 'PUT',
+      // Prepare payment data
+      const paymentData = {
+        gigId: proposal.gigId._id || proposal.gigId, // Use the ID string, not the entire object
+        clientId: proposal.clientId,
+        amount: Number(proposal.bidAmount), // Ensure it's a number
+        gigTitle: proposal.gig?.title || 'Completed Project'
+      };
+
+      console.log('Sending payment data:', paymentData);
+
+      // Create checkout session using the new simplified endpoint
+      const response = await fetch(`${apiUrl}/api/payments/create-checkout-session`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify(paymentData)
       });
 
       if (response.ok) {
         const result = await response.json();
-        alert(`Proposal marked as completed! Client can now make payment of $${result.amount}`);
-        fetchProposals(); // Refresh the list
+        
+        // Check if we have a URL
+        if (!result.url) {
+          throw new Error('Payment session could not be created');
+        }
+        
+        // Redirect to Stripe checkout
+        window.location.href = result.url;
       } else {
-        const error = await response.json();
-        alert(`Error: ${error.error}`);
+        const error = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+        console.error('Payment error response:', error);
+        alert(`Error: ${error.error || 'Failed to process payment'}`);
       }
     } catch (error) {
-      console.error('Error marking proposal as completed:', error);
-      alert('Error marking proposal as completed');
+      console.error('Error processing payment:', error);
+      alert('Error processing payment. Please try again or contact support.');
     } finally {
-      setCompletingProposal(null);
+      setProcessingPayment(null);
     }
+  };
+
+  // Refresh proposals to get updated status
+  const refreshProposals = async () => {
+    await fetchProposals();
   };
 
   const getStatusColor = (status: string) => {
@@ -94,6 +129,7 @@ export default function FreelancerProposals() {
       case 'accepted': return 'bg-green-100 text-green-800';
       case 'rejected': return 'bg-red-100 text-red-800';
       case 'completed': return 'bg-blue-100 text-blue-800';
+      case 'paid': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -110,8 +146,8 @@ export default function FreelancerProposals() {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Proposals</h1>
-          <p className="text-gray-600">Track your submitted proposals and manage completed projects</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Proposals</h1>
+          <p className="text-gray-600">Review and manage proposals for your gigs</p>
         </div>
 
         {proposals.length === 0 ? (
@@ -122,12 +158,12 @@ export default function FreelancerProposals() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No proposals yet</h3>
-            <p className="text-gray-600 mb-6">Start by browsing gigs and submitting proposals</p>
+            <p className="text-gray-600 mb-6">Proposals will appear here when freelancers submit them</p>
             <button
-              onClick={() => router.push('/gigs')}
+              onClick={() => router.push('/my-gigs')}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
             >
-              Browse Gigs
+              View My Gigs
             </button>
           </div>
         ) : (
@@ -140,7 +176,7 @@ export default function FreelancerProposals() {
                       {proposal.gig?.title || 'Project Proposal'}
                     </h3>
                     <div className="flex items-center gap-4 text-sm text-gray-600 mb-2">
-                      <span>Client: {proposal.clientId}</span>
+                      <span>Freelancer: {proposal.freelancerProfile?.name || proposal.freelancerId}</span>
                       <span>Bid: ${proposal.bidAmount}</span>
                       <span>Duration: {proposal.estimatedDuration}</span>
                       <span>Submitted: {new Date(proposal.submittedAt).toLocaleDateString()}</span>
@@ -157,14 +193,20 @@ export default function FreelancerProposals() {
                     </div>
                   </div>
                   
-                  {proposal.status === 'accepted' && (
+                  {proposal.status === 'completed' && (
                     <button
-                      onClick={() => markAsCompleted(proposal._id)}
-                      disabled={completingProposal === proposal._id}
+                      onClick={() => handlePayment(proposal)}
+                      disabled={processingPayment === proposal._id}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
                     >
-                      {completingProposal === proposal._id ? 'Marking...' : 'Mark as Completed'}
+                      {processingPayment === proposal._id ? 'Processing...' : `Pay $${proposal.bidAmount}`}
                     </button>
+                  )}
+                  
+                  {proposal.status === 'paid' && (
+                    <div className="px-4 py-2 bg-purple-600 text-white rounded-lg">
+                      <span className="font-medium">✓ Paid</span>
+                    </div>
                   )}
                 </div>
 
@@ -172,6 +214,18 @@ export default function FreelancerProposals() {
                   <h4 className="font-medium text-gray-900 mb-2">Proposal Details</h4>
                   <p className="text-gray-700 text-sm leading-relaxed">{proposal.proposal}</p>
                 </div>
+
+                {proposal.freelancerProfile && (
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h4 className="font-medium text-gray-900 mb-2">Freelancer Profile</h4>
+                    <div className="text-sm text-gray-700">
+                      <p><strong>Name:</strong> {proposal.freelancerProfile.name}</p>
+                      <p><strong>Title:</strong> {proposal.freelancerProfile.title}</p>
+                      <p><strong>Experience:</strong> {proposal.freelancerProfile.experienceLevel}</p>
+                      <p><strong>Skills:</strong> {proposal.freelancerProfile.skills.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
 
                 {proposal.gig && (
                   <div className="border-t border-gray-200 pt-4 mt-4">
@@ -186,4 +240,4 @@ export default function FreelancerProposals() {
       </div>
     </div>
   );
-} 
+}

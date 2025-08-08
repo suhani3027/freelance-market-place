@@ -1,6 +1,5 @@
 "use client";
 import React, { useState } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
 
 interface PaymentButtonProps {
   gigId: string;
@@ -11,8 +10,6 @@ interface PaymentButtonProps {
   onPaymentError?: (error: string) => void;
   disabled?: boolean;
 }
-
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 export default function PaymentButton({ 
   gigId, 
@@ -31,7 +28,7 @@ export default function PaymentButton({
     setLoading(true);
     try {
       // Create checkout session
-      const response = await fetch('http://localhost:5000/api/payments/create-checkout-session', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/payments/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -46,24 +43,17 @@ export default function PaymentButton({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create checkout session');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to create checkout session');
       }
 
-      const { sessionId, orderId } = await response.json();
+      const { url } = await response.json();
 
-      // Load Stripe
-      const stripe = await stripePromise;
-      if (!stripe) {
-        throw new Error('Stripe failed to load');
-      }
-
-      // Redirect to Stripe Checkout
-      const { error } = await stripe.redirectToCheckout({
-        sessionId,
-      });
-
-      if (error) {
-        throw new Error(error.message);
+      if (url) {
+        // Redirect to Stripe Checkout
+        window.location.href = url;
+      } else {
+        throw new Error('No checkout URL received');
       }
 
     } catch (error: any) {
@@ -80,7 +70,7 @@ export default function PaymentButton({
         onClick={handlePayment}
         disabled={disabled || loading}
         className={`w-full px-6 py-3 rounded-lg font-semibold text-white transition-colors ${
-          disabled 
+          disabled
             ? 'bg-gray-400 cursor-not-allowed' 
             : loading 
               ? 'bg-blue-500 cursor-wait' 

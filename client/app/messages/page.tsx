@@ -37,6 +37,7 @@ function MessagesContent() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
@@ -50,19 +51,24 @@ function MessagesContent() {
   }, []);
 
   useEffect(() => {
-    fetchConversations();
+    // Add a small delay to prevent multiple rapid calls
+    const timer = setTimeout(() => {
+      fetchConversations();
+    }, 100);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
-    if (initialUser) {
+    if (initialUser && conversations.length > 0) {
       // Find conversation with this user
       const conversation = conversations.find(conv => conv.otherUser.email === initialUser);
-      if (conversation) {
+      if (conversation && !selectedConversation) {
         setSelectedConversation(conversation);
         fetchMessages(conversation.otherUser.email);
       }
     }
-  }, [conversations, initialUser]);
+  }, [conversations, initialUser, selectedConversation]);
 
   const fetchConversations = async () => {
     try {
@@ -79,7 +85,20 @@ function MessagesContent() {
 
       if (res.ok) {
         const data = await res.json();
-        setConversations(data);
+
+        // Check for duplicate connectionIds
+        const connectionIds = data.map((conv: Conversation) => conv.connectionId);
+        const duplicates = connectionIds.filter((id: string, index: number) => connectionIds.indexOf(id) !== index);
+        if (duplicates.length > 0) {
+          console.warn('Duplicate connectionIds found:', duplicates);
+          // Remove duplicates before setting state
+          const uniqueConversations = data.filter((conv: Conversation, index: number) => 
+            connectionIds.indexOf(conv.connectionId) === index
+          );
+          setConversations(uniqueConversations);
+        } else {
+          setConversations(data);
+        }
       } else {
         setError('Failed to load conversations');
       }
@@ -99,6 +118,13 @@ function MessagesContent() {
 
       if (res.ok) {
         const data = await res.json();
+
+        // Check for duplicate message IDs
+        const messageIds = data.map((msg: Message) => msg._id);
+        const duplicates = messageIds.filter((id: string, index: number) => messageIds.indexOf(id) !== index);
+        if (duplicates.length > 0) {
+          console.warn('Duplicate message IDs found:', duplicates);
+        }
         setMessages(data);
         
         // Mark messages as read
@@ -106,9 +132,6 @@ function MessagesContent() {
           method: 'PUT',
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        
-        // Refresh conversations to update unread counts
-        fetchConversations();
       } else {
         setError('Failed to load messages');
       }
@@ -135,14 +158,11 @@ function MessagesContent() {
         })
       });
 
-      if (res.ok) {
-        const sentMessage = await res.json();
-        setMessages(prev => [...prev, sentMessage]);
-        setNewMessage('');
-        
-        // Refresh conversations to update latest message
-        fetchConversations();
-      } else {
+             if (res.ok) {
+         const sentMessage = await res.json();
+         setMessages(prev => [...prev, sentMessage]);
+         setNewMessage('');
+       } else {
         const data = await res.json();
         alert(data.message || 'Failed to send message');
       }
@@ -156,6 +176,13 @@ function MessagesContent() {
   const handleConversationSelect = (conversation: Conversation) => {
     setSelectedConversation(conversation);
     fetchMessages(conversation.otherUser.email);
+  };
+
+  const refreshConversations = async () => {
+    if (refreshing) return; // Prevent multiple simultaneous refreshes
+    setRefreshing(true);
+    await fetchConversations();
+    setRefreshing(false);
   };
 
   if (loading) {
@@ -184,14 +211,22 @@ function MessagesContent() {
       
       <div className="flex h-[600px] bg-white rounded-lg shadow-lg overflow-hidden">
         {/* Conversations List */}
-        <div className="w-1/3 border-r border-gray-200">
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold">Conversations</h2>
-          </div>
+                 <div className="w-1/3 border-r border-gray-200">
+           <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+             <h2 className="text-lg font-semibold">Conversations</h2>
+             <button
+               onClick={refreshConversations}
+               disabled={refreshing}
+               className="text-blue-600 hover:text-blue-800 text-sm font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
+               title="Refresh conversations"
+             >
+               {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
+             </button>
+           </div>
           <div className="overflow-y-auto h-full">
-            {conversations.map((conversation) => (
-              <div
-                key={conversation.connectionId}
+                         {conversations.map((conversation, index) => (
+               <div
+                 key={conversation.connectionId}
                 onClick={() => handleConversationSelect(conversation)}
                 className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
                   selectedConversation?.connectionId === conversation.connectionId ? 'bg-blue-50' : ''
@@ -251,9 +286,9 @@ function MessagesContent() {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map((message) => (
-                  <div
-                    key={message._id}
+                                 {messages.map((message, index) => (
+                   <div
+                     key={message._id}
                     className={`flex ${message.sender.email === userEmail ? 'justify-end' : 'justify-start'}`}
                   >
                     <div

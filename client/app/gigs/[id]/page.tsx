@@ -4,6 +4,12 @@ import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ProposalForm from "../../../components/ProposalForm";
 import ReviewList from "../../../components/ReviewList";
+import dynamic from 'next/dynamic';
+
+const ReviewSection = dynamic(() => import('../../components/ReviewSection'), {
+  ssr: false,
+  loading: () => <div>Loading reviews...</div>
+});
 
 interface Gig {
   _id: string;
@@ -125,27 +131,52 @@ export default function GigDetailPage() {
   const loadProposals = async () => {
     setProposalsLoading(true);
     try {
-      console.log('Loading proposals for gig:', gigId);
+      const token = localStorage.getItem('token');
       
-      // Try the authenticated route first
-      let response = await fetch(`http://localhost:5000/api/proposals/gig/${gigId}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+      // If user is not logged in, use public route
+      if (!token) {
+        const response = await fetch(`http://localhost:5000/api/proposals/gig/${gigId}/public`);
+        if (response.ok) {
+          const data = await response.json();
+          setProposals(data);
+        } else {
+          console.error('Failed to load proposals:', response.status, response.statusText);
         }
-      });
-      
-      // If 403 (not authorized), try the public route for debugging
-      if (response.status === 403) {
-        console.log('Not authorized, trying public route...');
-        response = await fetch(`http://localhost:5000/api/proposals/gig/${gigId}/public`);
+        return;
       }
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Proposals loaded:', data);
-        setProposals(data);
+      // Decode JWT token to check user role
+      const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+      const userRole = tokenPayload.role;
+      
+      // For clients, try authenticated route first, then fall back to public
+      if (userRole === 'client') {
+        let response = await fetch(`http://localhost:5000/api/proposals/gig/${gigId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        // If 403 (not authorized), try the public route
+        if (response.status === 403) {
+          response = await fetch(`http://localhost:5000/api/proposals/gig/${gigId}/public`);
+        }
+        
+        if (response.ok) {
+          const data = await response.json();
+          setProposals(data);
+        } else {
+          console.error('Failed to load proposals:', response.status, response.statusText);
+        }
       } else {
-        console.error('Failed to load proposals:', response.status, response.statusText);
+        // For freelancers and other users, use public route directly
+        const response = await fetch(`http://localhost:5000/api/proposals/gig/${gigId}/public`);
+        if (response.ok) {
+          const data = await response.json();
+          setProposals(data);
+        } else {
+          console.error('Failed to load proposals:', response.status, response.statusText);
+        }
       }
     } catch (error) {
       console.error('Error loading proposals:', error);
@@ -331,14 +362,7 @@ export default function GigDetailPage() {
              <div className="mb-6 p-6 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-200">
                <h3 className="font-semibold text-gray-900 mb-4">Proposal System</h3>
                
-               {/* Debug Info */}
-               <div className="mb-4 p-3 bg-yellow-50 rounded-lg text-sm">
-                 <p><strong>Debug Info:</strong></p>
-                 <p>Current User: {currentUserEmail}</p>
-                 <p>User Role: {currentUserRole}</p>
-                 <p>Gig Owner: {gig.clientId}</p>
-                 <p>Is Owner: {currentUserEmail === gig.clientId ? 'Yes' : 'No'}</p>
-               </div>
+
                
                {currentUserRole === 'freelancer' && currentUserEmail !== gig.clientId ? (
                  <div className="space-y-4">
@@ -497,22 +521,23 @@ export default function GigDetailPage() {
 
         {/* Reviews Section */}
         <div className="mt-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Reviews</h2>
-          {reviewsLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            </div>
-          ) : (
-            <ReviewList
-              reviews={reviews}
-              onMarkHelpful={handleMarkHelpful}
-              onSortChange={(sort) => {
-                // You can implement sorting logic here
-                console.log('Sort by:', sort);
-              }}
+          {gig?.clientId ? (
+            <ReviewSection
+              type="gig"
+              targetId={gig.clientId}
+              targetName={gig?.title || ''}
+              targetRole="client"
+              gigId={gigId}
+              currentUserEmail={currentUserEmail}
+              currentUserRole={currentUserRole}
             />
-                     )}
-         </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Reviews</h3>
+              <p className="text-gray-600">Unable to load reviews. Gig information is incomplete.</p>
+            </div>
+          )}
+        </div>
        </div>
 
        {/* Proposal Form Modal */}

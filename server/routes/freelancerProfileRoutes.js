@@ -37,12 +37,13 @@ router.get('/me', authenticateJWT, async (req, res) => {
       const user = await User.findOne({ email: userEmail });
       
       if (user) {
-        // Create a basic profile from user data
+        // Create a basic profile from user data with better mapping
         profile = {
           userId: user._id.toString(),
           email: user.email,
           fullName: user.name,
-          title: user.role === 'freelancer' ? 'Freelancer' : 'Client',
+          name: user.name, // Add this for compatibility
+          title: user.role === 'freelancer' ? 'Freelancer' : (user.companyName ? 'Client' : 'Freelancer'),
           overview: user.businessDescription || 'No overview available',
           skills: [],
           categories: [],
@@ -61,10 +62,39 @@ router.get('/me', authenticateJWT, async (req, res) => {
           website: user.website,
           businessDescription: user.businessDescription
         };
+        
+        // Save this basic profile to the database for future use
+        const newProfile = new FreelancerProfile(profile);
+        await newProfile.save();
+        profile = newProfile.toObject();
       } else {
         return res.status(404).json({ message: 'Profile not found' });
       }
     }
+    
+    res.json(profile);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Update freelancer profile by email
+router.put('/:email', authenticateJWT, async (req, res) => {
+  try {
+    const { email } = req.params;
+    const decodedEmail = decodeURIComponent(email);
+    const updateData = req.body;
+    
+    // Check if user is updating their own profile
+    if (req.user.email !== decodedEmail) {
+      return res.status(403).json({ message: 'You can only update your own profile' });
+    }
+    
+    const profile = await FreelancerProfile.findOneAndUpdate(
+      { email: decodedEmail },
+      { $set: updateData },
+      { new: true, upsert: true }
+    );
     
     res.json(profile);
   } catch (err) {
@@ -87,12 +117,13 @@ router.get('/:email', async (req, res) => {
       const user = await User.findOne({ email: decodedEmail });
       
       if (user) {
-        // Create a basic profile from user data
+        // Create a basic profile from user data with better mapping
         profile = {
           userId: user._id.toString(),
           email: user.email,
           fullName: user.name,
-          title: user.role === 'freelancer' ? 'Freelancer' : 'Client',
+          name: user.name, // Add this for compatibility
+          title: user.role === 'freelancer' ? 'Freelancer' : (user.companyName ? 'Client' : 'Freelancer'),
           overview: user.businessDescription || 'No overview available',
           skills: [],
           categories: [],
@@ -111,6 +142,11 @@ router.get('/:email', async (req, res) => {
           website: user.website,
           businessDescription: user.businessDescription
         };
+        
+        // Save this basic profile to the database for future use
+        const newProfile = new FreelancerProfile(profile);
+        await newProfile.save();
+        profile = newProfile.toObject();
       } else {
         return res.status(404).json({ message: 'Profile not found' });
       }

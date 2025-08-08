@@ -29,6 +29,8 @@ const io = new Server(server, {
 
 socketHandler(io);
 
+// Make io available to routes
+app.set('io', io);
 
 // Connect Database
 connectDB();

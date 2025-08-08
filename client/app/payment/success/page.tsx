@@ -18,16 +18,12 @@ function PaymentSuccessContent() {
   const confirmPayment = async () => {
     try {
       // Confirm payment with backend
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/payments/confirm-payment`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/payments/confirm-payment?orderId=${orderId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          orderId,
-          paymentIntentId: orderId // In a real app, you'd get this from Stripe webhook
-        })
+        }
       });
 
       if (response.ok) {
@@ -90,8 +86,26 @@ function PaymentSuccessContent() {
 
           <div className="space-y-3">
             <Link href="/dashboard">
-              <button className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition">
+              <button 
+                className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
+                onClick={() => {
+                  // Set a flag to refresh dashboard
+                  sessionStorage.setItem('refreshDashboard', 'true');
+                }}
+              >
                 Go to Dashboard
+              </button>
+            </Link>
+            
+            <Link href="/freelancer/proposals">
+              <button 
+                className="w-full bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition"
+                onClick={() => {
+                  // Set a flag to refresh proposals
+                  sessionStorage.setItem('refreshProposals', 'true');
+                }}
+              >
+                View Updated Proposals
               </button>
             </Link>
             

@@ -145,6 +145,11 @@ const NotificationsPage = () => {
           router.push(`/gigs?search=${encodeURIComponent('gig')}`);
         }
         break;
+      case 'profile_review':
+        if (notification.sender.email) {
+          router.push(`/clients/profile/${encodeURIComponent(notification.sender.email)}`);
+        }
+        break;
       default:
         break;
     }
@@ -165,6 +170,8 @@ const NotificationsPage = () => {
       case 'gig_created':
       case 'gig_updated':
         return '📝';
+      case 'profile_review':
+        return '⭐';
       default:
         return '🔔';
     }

@@ -2,6 +2,12 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from 'next/dynamic';
+
+const ReviewSection = dynamic(() => import('../../../components/ReviewSection'), {
+  ssr: false,
+  loading: () => <div>Loading reviews...</div>
+});
 
 export default function ClientProfile() {
   const { email: encodedEmail } = useParams();
@@ -238,6 +244,44 @@ export default function ClientProfile() {
             </div>
           </div>
 
+          {/* Company Information Section */}
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Company Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {profile.companyName && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="font-semibold text-gray-900 mb-1">Company Name</h3>
+                  <p className="text-gray-700">{profile.companyName}</p>
+                </div>
+              )}
+              {profile.companySize && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="font-semibold text-gray-900 mb-1">Company Size</h3>
+                  <p className="text-gray-700">{profile.companySize}</p>
+                </div>
+              )}
+              {profile.website && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="font-semibold text-gray-900 mb-1">Website</h3>
+                  <a 
+                    href={profile.website} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 underline"
+                  >
+                    {profile.website}
+                  </a>
+                </div>
+              )}
+              {profile.role && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="font-semibold text-gray-900 mb-1">Account Type</h3>
+                  <p className="text-gray-700 capitalize">{profile.role}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* About Section */}
           {profile.businessDescription && (
             <div className="p-6 border-b border-gray-200">
@@ -295,6 +339,19 @@ export default function ClientProfile() {
                 ))}
               </div>
             )}
+          </div>
+
+          {/* Review Section */}
+          <div className="p-6 border-t border-gray-200">
+            <ReviewSection
+              type="profile"
+              targetId={profile?.email || ''}
+              targetName={profile?.name || profile?.fullName || profile?.email || ''}
+              targetRole="client"
+              profileId={profile?.email || ''}
+              currentUserEmail={typeof window !== 'undefined' ? localStorage.getItem('email') : null}
+              currentUserRole={typeof window !== 'undefined' ? localStorage.getItem('role') : null}
+            />
           </div>
         </div>
       </div>

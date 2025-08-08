@@ -123,12 +123,18 @@ function CategoryContent() {
   }, []);
 
   useEffect(() => {
-    if (gigs.length > 0) {
+    if (gigs.length > 0 && role === 'client') {
+      // Only fetch proposal counts for clients viewing their own gigs
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
       Promise.all(
         gigs.map(async (gig: Gig) => {
           try {
-            const res = await fetch(`${apiUrl}/api/proposals/gig/${gig._id}`);
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${apiUrl}/api/proposals/gig/${gig._id}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
             if (res.ok) {
               const proposals = await res.json();
               return { gigId: gig._id, count: proposals.length };
@@ -142,7 +148,7 @@ function CategoryContent() {
         setProposalCounts(counts);
       });
     }
-  }, [gigs.length]);
+  }, [gigs.length, role]);
 
   const search = searchParams?.get('search')?.toLowerCase() || '';
   const filteredGigs = search

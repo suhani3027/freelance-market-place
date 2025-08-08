@@ -3,10 +3,11 @@ import { authenticateJWT } from '../middleware/authMiddleware.js';
 import {
   createReview,
   getGigReviews,
-  getFreelancerReviews,
-  getClientReviews,
+  getProfileReviews,
+  getUserReviews,
   markReviewHelpful,
-  deleteReview
+  deleteReview,
+  getReviewStats
 } from '../controllers/reviewController.js';
 
 const router = express.Router();
@@ -17,11 +18,14 @@ router.post('/', authenticateJWT, createReview);
 // Get reviews for a specific gig (public)
 router.get('/gig/:gigId', getGigReviews);
 
-// Get reviews for a freelancer (public)
-router.get('/freelancer/:freelancerId', getFreelancerReviews);
+// Get reviews for a profile (public)
+router.get('/profile/:profileId', getProfileReviews);
 
-// Get reviews by a client (protected)
-router.get('/client/:clientId', authenticateJWT, getClientReviews);
+// Get reviews by a user (protected)
+router.get('/user/:userId', authenticateJWT, getUserReviews);
+
+// Get review statistics for a user (public)
+router.get('/stats/:userId', getReviewStats);
 
 // Mark review as helpful (public)
 router.put('/:reviewId/helpful', markReviewHelpful);

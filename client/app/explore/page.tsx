@@ -69,6 +69,8 @@ function ExploreContent() {
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
+      } else {
+        console.error("Error searching users:", res.status, res.statusText);
       }
     } catch (error) {
       console.error("Error searching users:", error);
@@ -84,6 +86,8 @@ function ExploreContent() {
       if (res.ok) {
         const data = await res.json();
         setGigs(data);
+      } else {
+        console.error("Error searching gigs:", res.status, res.statusText);
       }
     } catch (error) {
       console.error("Error searching gigs:", error);
@@ -111,7 +115,7 @@ function ExploreContent() {
     e.preventDefault();
     if (searchQuery.trim()) {
       if (searchType === 'users') {
-        searchUsers(searchQuery);
+      searchUsers(searchQuery);
       } else {
         searchGigs(searchQuery);
       }
@@ -588,7 +592,7 @@ function ExploreContent() {
       </div>
     </div>
   );
-}
+} 
 
 export default function Explore() {
   return (
@@ -603,4 +607,4 @@ export default function Explore() {
       <ExploreContent />
     </Suspense>
   );
-}
+} 

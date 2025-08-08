@@ -1,15 +1,13 @@
 import multer from 'multer';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
-import cloudinary from './cloudinary.js';
 
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'gigs', // Folder name in your Cloudinary account
-    allowed_formats: ['jpg', 'jpeg', 'png'],
-  },
+// Use memory storage to avoid hanging issues
+const storage = multer.memoryStorage();
+
+const parser = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  }
 });
-
-const parser = multer({ storage: storage });
 
 export default parser;

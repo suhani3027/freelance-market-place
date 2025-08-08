@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { io, Socket } from 'socket.io-client';
 
 export default function Navbar() {
   const [isAuth, setIsAuth] = useState(false);
@@ -27,6 +28,10 @@ export default function Navbar() {
   const [messageCount, setMessageCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  
+  // Use configured API base URL everywhere
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +46,7 @@ export default function Navbar() {
     setSearch(e.target.value);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     const value = e.target.value;
-    if (value.trim() === '') {
+        if (value.trim() === '') {
       setSearchResults([]);
       setSearchDropdownOpen(false);
       return;
@@ -49,10 +54,10 @@ export default function Navbar() {
     if (searchType === 'talent') {
       searchTimeout.current = setTimeout(async () => {
                  try {
-           const res = await fetch(`http://localhost:5000/api/users/search?q=${encodeURIComponent(value)}`);
+           const res = await fetch(`${apiUrl}/api/users/search?q=${encodeURIComponent(value)}`);
            if (res.ok) {
              const data = await res.json();
-             console.log('Search API response:', data);
+
              setSearchResults(data);
              setSearchDropdownOpen(true);
            } else {
@@ -67,7 +72,7 @@ export default function Navbar() {
     } else {
       searchTimeout.current = setTimeout(async () => {
         try {
-          const res = await fetch(`http://localhost:5000/api/gigs?search=${encodeURIComponent(value)}`);
+          const res = await fetch(`${apiUrl}/api/gigs?search=${encodeURIComponent(value)}`);
           if (res.ok) {
             const data = await res.json();
             setSearchResults(data);
@@ -89,11 +94,7 @@ export default function Navbar() {
     setSearchResults([]);
     setSearchDropdownOpen(false);
     if (searchType === 'talent') {
-      console.log('Navigating to profile for item:', item);
-      if (!item.email) {
-        console.error('No email found in item:', item);
-        return;
-      }
+
       if (item.role === 'client') {
         router.push(`/clients/profile/${encodeURIComponent(item.email)}`);
       } else {
@@ -129,7 +130,9 @@ export default function Navbar() {
 
   // Fetch notification and message counts
   useEffect(() => {
+    let isMounted = true;
     const fetchCounts = async () => {
+      if (!isMounted) return;
       const token = localStorage.getItem('token');
 
       // Only proceed if we have a valid JWT token (not hardcoded tokens)
@@ -138,8 +141,11 @@ export default function Navbar() {
       }
 
       try {
+        // If API is down, bail out quietly to avoid noisy overlay in dev
+        const ping = await fetch(`${apiUrl}/api/users`, { method: 'HEAD' }).catch(() => null);
+        if (!ping) return;
         // Fetch notification count
-        const notificationRes = await fetch('http://localhost:5000/api/notifications/unread-count', {
+        const notificationRes = await fetch(`${apiUrl}/api/notifications/unread-count`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (notificationRes.ok) {
@@ -148,18 +154,32 @@ export default function Navbar() {
         }
 
         // Fetch message count
-        const messageRes = await fetch('http://localhost:5000/api/messages/conversations', {
+        const messageRes = await fetch(`${apiUrl}/api/messages/conversations`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (messageRes.ok) {
           const messageData = await messageRes.json();
-          const totalUnread = messageData.reduce((sum: number, conv: any) => sum + conv.unreadCount, 0);
-          setMessageCount(totalUnread);
-          setConversations(messageData);
+
+           const connectionIds = messageData.map((conv: any) => conv.connectionId);
+           const duplicates = connectionIds.filter((id: string, index: number) => connectionIds.indexOf(id) !== index);
+           if (duplicates.length > 0) {
+             console.warn('Navbar - Duplicate connectionIds found:', duplicates);
+             // Remove duplicates before setting state
+             const uniqueConversations = messageData.filter((conv: any, index: number) => 
+               connectionIds.indexOf(conv.connectionId) === index
+             );
+             const totalUnread = uniqueConversations.reduce((sum: number, conv: any) => sum + conv.unreadCount, 0);
+             setMessageCount(totalUnread);
+             setConversations(uniqueConversations);
+           } else {
+             const totalUnread = messageData.reduce((sum: number, conv: any) => sum + conv.unreadCount, 0);
+             setMessageCount(totalUnread);
+             setConversations(messageData);
+           }
         }
 
         // Fetch recent notifications
-        const recentNotificationsRes = await fetch('http://localhost:5000/api/notifications?page=1&limit=5', {
+        const recentNotificationsRes = await fetch(`${apiUrl}/api/notifications?page=1&limit=5`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (recentNotificationsRes.ok) {
@@ -167,14 +187,81 @@ export default function Navbar() {
           setNotifications(notificationsData.notifications);
         }
       } catch (error) {
-        console.error('Error fetching counts:', error);
+        // Use warn to avoid Next.js error overlay in dev while still surfacing info
+        console.warn('Skipping counts fetch (API unreachable or network error).');
       }
     };
 
     fetchCounts();
-    const interval = setInterval(fetchCounts, 30000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchCounts, 60000); // Changed from 30s to 60s
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
+
+  // Socket.io connection and payment notification handling
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const userEmail = localStorage.getItem('email');
+    
+    if (!token || !userEmail) return;
+
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    // Initialize Socket.io connection
+    const socketInstance = io(apiUrl, {
+      auth: {
+        token: token
+      }
+    });
+
+    socketInstance.on('connect', () => {
+      console.log('Connected to Socket.io server');
+    });
+
+    socketInstance.on('disconnect', () => {
+      console.log('Disconnected from Socket.io server');
+    });
+
+    // Handle payment notifications
+    socketInstance.on('paymentNotification', (data) => {
+      if (data.recipient === userEmail) {
+        console.log('Payment notification received:', data);
+        
+        // Show browser notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(data.title, {
+            body: data.message,
+            icon: '/favicon.ico'
+          });
+        }
+
+        // Update notification count and add to notifications list
+        setNotificationCount(prev => prev + 1);
+        setNotifications(prev => [{
+          _id: Date.now().toString(),
+          title: data.title,
+          message: data.message,
+          type: data.type,
+          createdAt: new Date().toISOString(),
+          isRead: false
+        }, ...prev]);
+
+        // Show toast notification
+        alert(`🎉 ${data.title}\n${data.message}`);
+      }
+    });
+
+    setSocket(socketInstance);
+
+    return () => {
+      socketInstance.disconnect();
+    };
+  }, [apiUrl]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -287,14 +374,31 @@ export default function Navbar() {
             <Link href="/explore" className="text-gray-700 hover:text-blue-600 font-medium">
               Explore
             </Link>
-            <div className="relative">
-              <button className="text-gray-700 hover:text-blue-600 font-medium flex items-center gap-1">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                English
-              </button>
-            </div>
+            
+            {/* Role-specific navigation */}
+            {isClient && (
+              <>
+                <Link href="/my-gigs" className="text-gray-700 hover:text-blue-600 font-medium">
+                  My Gigs
+                </Link>
+                <Link href="/freelancer/proposals" className="text-gray-700 hover:text-blue-600 font-medium">
+                  Proposals
+                </Link>
+              </>
+            )}
+            
+            {isFreelancer && (
+              <>
+                <Link href="/gigs" className="text-gray-700 hover:text-blue-600 font-medium">
+                  Available Gigs
+                </Link>
+                <Link href="/freelancer/profile/proposals" className="text-gray-700 hover:text-blue-600 font-medium">
+                  My Proposals
+                </Link>
+              </>
+            )}
+            
+            
             <Link href="/register" className="text-gray-700 hover:text-blue-600 font-medium">
               Become a Seller
             </Link>
@@ -325,9 +429,9 @@ export default function Navbar() {
                       <div className="p-4 text-center text-gray-500">No notifications</div>
                     ) : (
                       <div>
-                        {notifications.slice(0, 5).map((notification) => (
-                          <div
-                            key={notification._id}
+                                                 {notifications.slice(0, 5).map((notification, index) => (
+                           <div
+                             key={notification._id}
                             className="p-3 border-b hover:bg-gray-50 cursor-pointer"
                             onClick={() => {
                               setNotificationDropdownOpen(false);
@@ -388,9 +492,9 @@ export default function Navbar() {
                       <div className="p-4 text-center text-gray-500">No messages</div>
                     ) : (
                       <div>
-                        {conversations.slice(0, 5).map((conversation) => (
-                          <div
-                            key={conversation.connectionId}
+                                                 {conversations.slice(0, 5).map((conversation, index) => (
+                           <div
+                             key={conversation.connectionId}
                             className="p-3 border-b hover:bg-gray-50 cursor-pointer"
                             onClick={() => {
                               setMessageDropdownOpen(false);
@@ -481,16 +585,22 @@ export default function Navbar() {
                           <button className="flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 w-full text-left" onClick={() => { router.push('/freelancer/profile/proposals'); setDropdownOpen(false); }}>
                             <span className="material-icons"></span> My Proposals
                           </button>
-                          <button className="flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 w-full text-left" onClick={() => { router.push('/gigs/new'); setDropdownOpen(false); }}>
-                            <span className="material-icons"></span> Create Gig
-                          </button>
                         </>
                       )}
                       {isClient && (
-                        <button className="flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 w-full text-left" onClick={() => { router.push('/gigs/new'); setDropdownOpen(false); }}>
-                          <span className="material-icons"></span> Create Gig
-                        </button>
+                        <>
+                          <button className="flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 w-full text-left" onClick={() => { router.push('/my-gigs'); setDropdownOpen(false); }}>
+                            <span className="material-icons"></span> My Gigs
+                          </button>
+                          <button className="flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 w-full text-left" onClick={() => { router.push('/freelancer/proposals'); setDropdownOpen(false); }}>
+                            <span className="material-icons"></span> Proposals
+                          </button>
+                        </>
                       )}
+
+                      <button className="flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 w-full text-left" onClick={() => { router.push('/gigs/new'); setDropdownOpen(false); }}>
+                            <span className="material-icons"></span> Create Gig
+                          </button>
                     </div>
                     <button
                       className="w-full text-left px-4 py-2 rounded hover:bg-gray-100 text-red-600 font-semibold mt-2"

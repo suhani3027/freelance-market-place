@@ -79,15 +79,19 @@ function GigListContent() {
   }, []);
 
   useEffect(() => {
-    if (gigs.length > 0) {
-      // After gigs are fetched:
+    if (gigs.length > 0 && role === 'client') {
+      // Only fetch proposal counts for clients viewing their own gigs
       if (gigs && Array.isArray(gigs)) {
-        // Fetch proposal counts for each gig
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
         Promise.all(
           gigs.map(async (gig: Gig) => {
             try {
-              const res = await fetch(`${apiUrl}/api/proposals/gig/${gig._id}`);
+              const token = localStorage.getItem('token');
+              const res = await fetch(`${apiUrl}/api/proposals/gig/${gig._id}`, {
+                headers: {
+                  'Authorization': `Bearer ${token}`
+                }
+              });
               if (res.ok) {
                 const proposals = await res.json();
                 return { gigId: gig._id, count: proposals.length };
@@ -102,14 +106,18 @@ function GigListContent() {
         });
       }
     }
-  }, [gigs]);
+  }, [gigs, role]);
 
-  // Show all gigs for freelancers, or only client's own gigs for clients
+  // Show gigs based on user role
   let gigsToShow: Gig[] = gigs;
   if (role && role.toLowerCase() === 'client') {
+    // Clients see only their own gigs for management
     gigsToShow = clientId ? gigs.filter(gig => gig.clientId === clientId) : [];
+  } else if (role && role.toLowerCase() === 'freelancer') {
+    // Freelancers see all gigs (except their own if they somehow have any)
+    gigsToShow = freelancerId ? gigs.filter(gig => gig.clientId !== freelancerId) : gigs;
   }
-  // For freelancers, show all gigs (they can apply to any gig)
+  
   const search = searchParams?.get('search')?.toLowerCase() || '';
   const filteredGigs = search
     ? gigsToShow.filter(gig => {
@@ -131,8 +139,8 @@ function GigListContent() {
     return <div className="text-red-500 text-center mt-8">{error}</div>;
   }
 
-  if (role && role.toLowerCase() === 'client' && !clientId) {
-    return <div className="flex flex-col items-center justify-center h-64 text-lg">Please log in as a client to view your posted gigs.</div>;
+  if (!role) {
+    return <div className="flex flex-col items-center justify-center h-64 text-lg">Please log in to view gigs.</div>;
   }
 
   return (
@@ -141,7 +149,11 @@ function GigListContent() {
         {role && role.toLowerCase() === 'client' ? 'My Posted Gigs' : 'Available Gigs'}
       </h1>
       {filteredGigs.length === 0 ? (
-        <div className="text-gray-500 text-center">No gigs found.</div>
+        <div className="text-gray-500 text-center">
+          {role && role.toLowerCase() === 'client' 
+            ? 'You haven\'t posted any gigs yet.' 
+            : 'No gigs available at the moment.'}
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredGigs.map((gig) => {
@@ -225,21 +237,39 @@ function GigListContent() {
                     </div>
                   </div>
 
-                  {/* Apply Button for Freelancers */}
+                  {/* Action Buttons */}
                   {role && role.toLowerCase() === 'freelancer' && (
                     <button
                       className="w-full mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                      onClick={() => {
-                        setSelectedGig(gig);
-                        setShowModal(true);
-                        setCoverLetter('');
-                        setProposalAmount(gig.amount ? gig.amount.toString() : '');
-                        setProposalSuccess('');
-                        setProposalError('');
-                      }}
+                                             onClick={() => {
+                         setSelectedGig(gig);
+                         setShowModal(true);
+                         setCoverLetter(`I am excited to work on your "${gig.title}" project. I have relevant experience in ${gig.skills && gig.skills.length > 0 ? gig.skills.join(', ') : 'this field'} and I believe I can deliver high-quality results within your timeline. Please let me know if you have any questions about my approach.`);
+                         setProposalAmount(gig.amount ? gig.amount.toString() : '');
+                         setProposalSuccess('');
+                         setProposalError('');
+                       }}
                     >
                       Apply Now
                     </button>
+                  )}
+                  
+                  {/* Client Management Buttons */}
+                  {role && role.toLowerCase() === 'client' && (
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+                        onClick={() => window.location.href = `/gigs/edit/${gig._id}`}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium text-sm"
+                        onClick={() => window.location.href = `/gigs/${gig._id}`}
+                      >
+                        View Proposals
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -248,21 +278,24 @@ function GigListContent() {
         </div>
       )}
       
-      {/* Proposal Modal */}
-      {showModal && selectedGig && (
+      {/* Proposal Modal - Only for Freelancers */}
+      {showModal && selectedGig && role && role.toLowerCase() === 'freelancer' && (
         <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-40">
           <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md relative">
             <button className="absolute top-2 right-2 text-gray-500 hover:text-gray-700" onClick={() => setShowModal(false)}>&times;</button>
             <h2 className="text-xl font-bold mb-4">Submit Proposal</h2>
-            <div className="mb-4">
-              <label className="block font-medium mb-1">Cover Letter</label>
-              <textarea
-                className="border rounded w-full p-2 min-h-[80px]"
-                value={coverLetter}
-                onChange={e => setCoverLetter(e.target.value)}
-                placeholder="Write a message to the client..."
-              />
-            </div>
+                         <div className="mb-4">
+               <label className="block font-medium mb-1">Cover Letter (Minimum 50 characters)</label>
+               <textarea
+                 className="border rounded w-full p-2 min-h-[80px]"
+                 value={coverLetter}
+                 onChange={e => setCoverLetter(e.target.value)}
+                 placeholder="Write a detailed message to the client explaining why you're the best fit for this project, your relevant experience, and how you plan to approach the work..."
+               />
+               <div className="text-xs text-gray-500 mt-1">
+                 {coverLetter.length}/50 characters minimum
+               </div>
+             </div>
             <div className="mb-4">
               <label className="block font-medium mb-1">Proposed Amount</label>
               <input
@@ -273,32 +306,37 @@ function GigListContent() {
                 placeholder="Amount"
               />
             </div>
-            <button
-              className="bg-green-600 text-white px-6 py-2 rounded font-semibold hover:bg-green-700 w-full"
-              disabled={submitting || !coverLetter || !proposalAmount}
-              onClick={async () => {
+                         <button
+               className="bg-green-600 text-white px-6 py-2 rounded font-semibold hover:bg-green-700 w-full disabled:bg-gray-400 disabled:cursor-not-allowed"
+               disabled={submitting || !coverLetter || !proposalAmount || coverLetter.length < 50}
+               onClick={async () => {
                 setSubmitting(true);
                 setProposalSuccess('');
                 setProposalError('');
                 try {
                   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+                  const token = localStorage.getItem('token');
                   const res = await fetch(`${apiUrl}/api/proposals`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
                     body: JSON.stringify({
                       gigId: selectedGig._id,
-                      freelancerId,
-                      coverLetter,
-                      amount: Number(proposalAmount),
+                      proposal: coverLetter,
+                      bidAmount: Number(proposalAmount),
+                      estimatedDuration: selectedGig.duration || 'Flexible'
                     }),
                   });
                   if (res.ok) {
                     setProposalSuccess('Proposal submitted successfully!');
                     setTimeout(() => setShowModal(false), 1200);
-                  } else {
-                    const data = await res.json();
-                    setProposalError(data.message || 'Failed to submit proposal.');
-                  }
+                                     } else {
+                     const data = await res.json();
+                     console.error('Proposal submission error:', data);
+                     setProposalError(data.error || data.message || data.details || 'Failed to submit proposal. Please ensure your cover letter is at least 50 characters long.');
+                   }
                 } catch {
                   setProposalError('Failed to submit proposal.');
                 } finally {
@@ -306,7 +344,7 @@ function GigListContent() {
                 }
               }}
             >
-              {submitting ? 'Submitting...' : 'Submit Proposal'}
+                             {submitting ? 'Submitting...' : coverLetter.length < 50 ? `Submit Proposal (${50 - coverLetter.length} more characters needed)` : 'Submit Proposal'}
             </button>
             {proposalError && <div className="text-red-500 mt-2">{proposalError}</div>}
             {proposalSuccess && <div className="text-green-600 mt-2">{proposalSuccess}</div>}

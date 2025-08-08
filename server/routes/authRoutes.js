@@ -30,6 +30,39 @@ export async function register(req, res) {
   });
   await newUser.save();
 
+  // Automatically create a basic profile for the user
+  try {
+    const FreelancerProfile = (await import('../models/freelancerProfile.js')).FreelancerProfile;
+    const basicProfile = new FreelancerProfile({
+      userId: newUser._id.toString(),
+      email: newUser.email,
+      fullName: newUser.name,
+      name: newUser.name,
+      title: role === 'freelancer' ? 'Freelancer' : (companyName ? 'Client' : 'Freelancer'),
+      overview: businessDescription || 'No overview available',
+      skills: [],
+      categories: [],
+      hourlyRate: 0,
+      availability: 'Available',
+      experienceLevel: 'Beginner',
+      education: [],
+      employment: [],
+      certifications: [],
+      portfolio: [],
+      languages: [],
+      socialLinks: [],
+      role: role || 'client',
+      companyName: companyName,
+      companySize: companySize,
+      website: website,
+      businessDescription: businessDescription
+    });
+    await basicProfile.save();
+  } catch (profileError) {
+    console.error('Error creating basic profile during registration:', profileError);
+    // Don't fail registration if profile creation fails
+  }
+
   return res.status(201).json({ message: "User registered" });
 }
 
@@ -49,7 +82,7 @@ export async function login(req, res) {
     return res.status(401).json({ message: "Incorrect password" });
   }
 
-  const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET, { expiresIn: "1d" });
+  const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "1d" });
 
   return res.status(200).json({ 
     token,
@@ -102,15 +135,71 @@ export async function getUserByEmail(req, res) {
     return res.status(404).json({ message: "User not found" });
   }
   
-  return res.status(200).json({
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    companyName: user.companyName,
-    companySize: user.companySize,
-    website: user.website,
-    businessDescription: user.businessDescription,
-  });
+  // Create a basic profile from user data and save it
+  try {
+    const basicProfile = new FreelancerProfile({
+      userId: user._id.toString(),
+      email: user.email,
+      fullName: user.name,
+      name: user.name,
+      title: user.role === 'freelancer' ? 'Freelancer' : (user.companyName ? 'Client' : 'Freelancer'),
+      overview: user.businessDescription || 'No overview available',
+      skills: [],
+      categories: [],
+      hourlyRate: 0,
+      availability: 'Available',
+      experienceLevel: 'Beginner',
+      education: [],
+      employment: [],
+      certifications: [],
+      portfolio: [],
+      languages: [],
+      socialLinks: [],
+      role: user.role,
+      companyName: user.companyName,
+      companySize: user.companySize,
+      website: user.website,
+      businessDescription: user.businessDescription
+    });
+    await basicProfile.save();
+    
+    // Return the newly created profile
+    return res.status(200).json({
+      name: basicProfile.fullName || basicProfile.name,
+      email: basicProfile.email,
+      role: basicProfile.role || 'freelancer',
+      title: basicProfile.title,
+      overview: basicProfile.overview,
+      skills: basicProfile.skills,
+      categories: basicProfile.categories,
+      hourlyRate: basicProfile.hourlyRate,
+      availability: basicProfile.availability,
+      experienceLevel: basicProfile.experienceLevel,
+      education: basicProfile.education,
+      employment: basicProfile.employment,
+      certifications: basicProfile.certifications,
+      portfolio: basicProfile.portfolio,
+      location: basicProfile.location,
+      englishLevel: basicProfile.englishLevel,
+      companyName: basicProfile.companyName,
+      companySize: basicProfile.companySize,
+      website: basicProfile.website,
+      businessDescription: basicProfile.businessDescription,
+      profilePhoto: basicProfile.profilePhoto,
+    });
+  } catch (profileError) {
+    console.error('Error creating basic profile:', profileError);
+    // If profile creation fails, return basic user data
+    return res.status(200).json({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      companyName: user.companyName,
+      companySize: user.companySize,
+      website: user.website,
+      businessDescription: user.businessDescription,
+    });
+  }
 }
 
 // Get all users (name and email only)
@@ -148,9 +237,7 @@ export async function searchUsers(req, res) {
     ]
   }, { fullName: 1, email: 1, title: 1, role: 1, _id: 1, skills: 1, overview: 1 });
   
-  console.log('Search query:', q);
-  console.log('Search results - Users:', users);
-  console.log('Search results - Profiles:', profiles);
+  
   
   // Normalize the results to have consistent field names
   const normalizedUsers = users.map(user => ({
@@ -173,8 +260,7 @@ export async function searchUsers(req, res) {
     userType: 'completed_profile'
   }));
   
-  console.log('Normalized Users:', normalizedUsers);
-  console.log('Normalized Profiles:', normalizedProfiles);
+  
   
   // Combine and deduplicate results
   const allResults = [...normalizedUsers, ...normalizedProfiles];
@@ -186,6 +272,6 @@ export async function searchUsers(req, res) {
     index === self.findIndex(t => t.email === item.email)
   );
   
-  console.log('Final unique results:', uniqueResults);
+  
   res.status(200).json(uniqueResults);
 }

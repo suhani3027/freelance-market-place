@@ -15,6 +15,15 @@ const socketHandler = (io) => {
       console.log('User disconnected');
     });
   });
+
+  // Function to emit payment notifications
+  io.emitPaymentNotification = (freelancerEmail, notificationData) => {
+    io.emit('paymentNotification', {
+      recipient: freelancerEmail,
+      ...notificationData
+    });
+    console.log(`Payment notification emitted to ${freelancerEmail}`);
+  };
 };
 
 export default socketHandler;

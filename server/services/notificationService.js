@@ -116,4 +116,23 @@ export const notifyGigCreated = async (gigId, clientId, gigTitle) => {
     gigId,
     'gig'
   );
+};
+
+// Profile review notification
+export const notifyProfileReview = async (reviewerId, profileOwnerId, reviewRating, isAnonymous = false) => {
+  const reviewer = await User.findById(reviewerId);
+  if (!reviewer) return;
+  
+  const reviewerName = isAnonymous ? 'Anonymous' : (reviewer.name || reviewer.email.split('@')[0]);
+  
+  return createNotification(
+    profileOwnerId,
+    reviewerId,
+    'profile_review',
+    'New Profile Review',
+    `${reviewerName} left you a ${reviewRating}-star review`,
+    null,
+    'review',
+    { rating: reviewRating, isAnonymous }
+  );
 }; 
