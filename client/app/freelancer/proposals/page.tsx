@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 interface Proposal {
   _id: string;
   gigId: string;
+  clientId: string;
   freelancerId: string;
   status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'paid';
   proposal: string;
@@ -77,13 +78,13 @@ export default function ClientProposals() {
     try {
       // Prepare payment data
       const paymentData = {
-        gigId: proposal.gigId._id || proposal.gigId, // Use the ID string, not the entire object
+        gigId: proposal.gigId, // gigId is already a string
         clientId: proposal.clientId,
         amount: Number(proposal.bidAmount), // Ensure it's a number
         gigTitle: proposal.gig?.title || 'Completed Project'
       };
 
-      console.log('Sending payment data:', paymentData);
+
 
       // Create checkout session using the new simplified endpoint
       const response = await fetch(`${apiUrl}/api/payments/create-checkout-session`, {

@@ -90,7 +90,6 @@ function MessagesContent() {
         const connectionIds = data.map((conv: Conversation) => conv.connectionId);
         const duplicates = connectionIds.filter((id: string, index: number) => connectionIds.indexOf(id) !== index);
         if (duplicates.length > 0) {
-          console.warn('Duplicate connectionIds found:', duplicates);
           // Remove duplicates before setting state
           const uniqueConversations = data.filter((conv: Conversation, index: number) => 
             connectionIds.indexOf(conv.connectionId) === index
@@ -123,7 +122,7 @@ function MessagesContent() {
         const messageIds = data.map((msg: Message) => msg._id);
         const duplicates = messageIds.filter((id: string, index: number) => messageIds.indexOf(id) !== index);
         if (duplicates.length > 0) {
-          console.warn('Duplicate message IDs found:', duplicates);
+          // Duplicate message IDs found, but we'll handle them gracefully
         }
         setMessages(data);
         

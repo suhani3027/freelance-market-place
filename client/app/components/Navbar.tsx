@@ -163,7 +163,6 @@ export default function Navbar() {
            const connectionIds = messageData.map((conv: any) => conv.connectionId);
            const duplicates = connectionIds.filter((id: string, index: number) => connectionIds.indexOf(id) !== index);
            if (duplicates.length > 0) {
-             console.warn('Navbar - Duplicate connectionIds found:', duplicates);
              // Remove duplicates before setting state
              const uniqueConversations = messageData.filter((conv: any, index: number) => 
                connectionIds.indexOf(conv.connectionId) === index
@@ -187,8 +186,7 @@ export default function Navbar() {
           setNotifications(notificationsData.notifications);
         }
       } catch (error) {
-        // Use warn to avoid Next.js error overlay in dev while still surfacing info
-        console.warn('Skipping counts fetch (API unreachable or network error).');
+        // Silently handle API errors
       }
     };
 
@@ -220,17 +218,16 @@ export default function Navbar() {
     });
 
     socketInstance.on('connect', () => {
-      console.log('Connected to Socket.io server');
+      // Connected to Socket.io server
     });
 
     socketInstance.on('disconnect', () => {
-      console.log('Disconnected from Socket.io server');
+      // Disconnected from Socket.io server
     });
 
     // Handle payment notifications
     socketInstance.on('paymentNotification', (data) => {
       if (data.recipient === userEmail) {
-        console.log('Payment notification received:', data);
         
         // Show browser notification
         if ('Notification' in window && Notification.permission === 'granted') {

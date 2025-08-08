@@ -124,7 +124,7 @@ export default function MyGigsPage() {
 
   const handleToggleStatus = async (gigId: string, currentStatus: string) => {
     // Implement status toggle functionality
-    console.log("Toggle status for gig:", gigId, "Current status:", currentStatus);
+
   };
 
   const getStatusTag = (status: string) => {

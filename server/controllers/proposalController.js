@@ -336,7 +336,7 @@ export const getClientProposals = async (req, res) => {
         const proposalObj = proposal.toObject();
         if (proposal.status === 'completed') {
           const order = await Order.findOne({
-            gigId: proposal.gigId._id.toString(),
+            gigId: proposal.gigId.toString(),
             clientId: proposal.clientId,
             freelancerId: proposal.freelancerId,
             status: 'pending'
