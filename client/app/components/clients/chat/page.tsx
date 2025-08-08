@@ -1,4 +1,4 @@
-import ChatUI from '../../../../components/chatUI';
+import ChatUI from "../../chatUI";
 
 const ClientChatPage = () => {
   // You may want to pass senderId and receiverId as props or from context
