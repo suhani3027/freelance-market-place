@@ -1,88 +1,71 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../lib/api';
 
 export default function FreelancerLogin() {
+  const [form, setForm] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
   const router = useRouter();
-  const [form, setForm] = useState({ email: "", password: "" });
-  const [message, setMessage] = useState("");
 
-  const handleChange = (e: any) => setForm({ ...form, [e.target.name]: e.target.value });
-
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.email || !form.password) {
-      setMessage("Please enter email and password.");
-      return;
-    }
-
+    setError('');
     try {
-      const res = await fetch('http://localhost:5000/api/login', {
+      const res = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      
       const data = await res.json();
-      if (res.ok) {
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("role", data.role || "freelancer");
-        localStorage.setItem("email", data.email || form.email);
-        localStorage.setItem("name", data.name || form.email.split("@")[0]);
-        localStorage.setItem("profilePhoto", "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png");
-        
-        // Check onboarding status from backend
-        try {
-          const profileRes = await fetch(`http://localhost:5000/api/freelancer-profile/${encodeURIComponent(form.email)}`);
-          if (profileRes.ok) {
-            const profileData = await profileRes.json();
-            if (profileData && profileData.fullName) {
-              localStorage.setItem('profileComplete', 'true');
-              if (profileData.profilePhoto) localStorage.setItem('profilePhoto', profileData.profilePhoto);
-              if (profileData.fullName) localStorage.setItem('name', profileData.fullName);
-              router.push('/dashboard');
-              return;
-            }
-          }
-          // If no profile or incomplete, go to onboarding
-          localStorage.removeItem('profileComplete');
-          router.push('/freelancer/questions');
-        } catch (err) {
-          // On error, go to onboarding
-          localStorage.removeItem('profileComplete');
-          router.push('/freelancer/questions');
-        }
+      if (!res.ok) {
+        setError(data.message || 'Login failed.');
       } else {
-        setMessage(data.message || "Login failed.");
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('role', 'freelancer');
+        localStorage.setItem('email', form.email);
+        localStorage.setItem('name', data.user.name);
+        localStorage.setItem('profilePhoto', data.user.profilePhoto || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png');
+        
+        // Check if freelancer profile exists
+        try {
+          const profileRes = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(form.email)}`);
+          if (profileRes.ok) {
+            router.push('/freelancer/profile');
+          } else {
+            router.push('/welcome');
+          }
+        } catch (profileErr) {
+          router.push('/welcome');
+        }
       }
     } catch (err) {
-      setMessage("Server error. Please try again.");
+      setError('Server error. Please try again later.');
     }
   };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
-      <h1 className="text-2xl font-bold mb-4">Freelancer Login</h1>
+      <h1 className="text-2xl font-bold mb-4">Log in to your account</h1>
       <form className="flex flex-col gap-4 w-80" onSubmit={handleSubmit}>
         <input
           className="border p-2 rounded"
           type="email"
-          name="email"
           placeholder="Email"
           value={form.email}
-          onChange={handleChange}
+          onChange={e => setForm({ ...form, email: e.target.value })}
         />
         <input
           className="border p-2 rounded"
           type="password"
-          name="password"
           placeholder="Password"
           value={form.password}
-          onChange={handleChange}
+          onChange={e => setForm({ ...form, password: e.target.value })}
         />
-        {message && <div className="text-red-500">{message}</div>}
+        {error && <div className="text-red-500">{error}</div>}
         <button className="bg-green-500 text-white py-2 rounded hover:bg-green-600" type="submit">
-          Log In
+          Log in
         </button>
       </form>
     </div>

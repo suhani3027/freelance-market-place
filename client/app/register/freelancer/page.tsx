@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../lib/api';
 
 export default function FreelancerRegister() {
   const [name, setName] = useState('');
@@ -28,7 +29,7 @@ export default function FreelancerRegister() {
       return;
     }
     try {
-      const res = await fetch('http://localhost:5000/api/register', {
+      const res = await fetch(`${API_BASE_URL}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, role: 'freelancer' }),
@@ -39,7 +40,7 @@ export default function FreelancerRegister() {
       } else {
         // After registration, automatically log in to get a proper JWT token
         try {
-          const loginRes = await fetch('http://localhost:5000/api/login', {
+          const loginRes = await fetch(`${API_BASE_URL}/api/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),

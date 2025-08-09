@@ -1,19 +1,10 @@
-import { io, Socket } from "socket.io-client";
+import { io } from "socket.io-client";
+import { getSocketUrl } from "../../lib/api";
 
-const SOCKET_URL = "http://localhost:5000"; // Update if your backend runs elsewhere
+const SOCKET_URL = getSocketUrl(); // Use the utility function
 
-let socket: Socket | null = null;
+const socket = io(SOCKET_URL, {
+  autoConnect: false,
+});
 
-export const initiateSocket = () => {
-  if (!socket) {
-    socket = io(SOCKET_URL, { transports: ["websocket"] });
-  }
-  return socket;
-};
-
-export const getSocket = () => {
-  if (!socket) {
-    socket = io(SOCKET_URL, { transports: ["websocket"] });
-  }
-  return socket;
-};
+export default socket;

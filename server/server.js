@@ -16,15 +16,24 @@ import { Server } from 'socket.io';
 import socketHandler from './socket/index.js';
 
 const app = express();
-app.use(cors());
+
+// CORS configuration for both development and production
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://your-frontend-domain.vercel.app', 'https://your-frontend-domain.netlify.app'] // Replace with your actual frontend domain
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:3000',
-    methods: ['GET', 'POST']
-  }
+  cors: corsOptions
 });
 
 socketHandler(io);
@@ -35,9 +44,22 @@ app.set('io', io);
 // Connect Database
 connectDB();
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Root route for health check
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Freelance Marketplace API is running!',
+    status: 'success',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Routes
 app.post('/api/register', register);
@@ -53,6 +75,14 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reviews', reviewRoutes);
+
+// 404 handler for undefined routes - Fixed the wildcard pattern
+app.use((req, res) => {
+  res.status(404).json({ 
+    message: 'Route not found',
+    path: req.originalUrl
+  });
+});
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
