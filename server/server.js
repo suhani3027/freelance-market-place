@@ -22,6 +22,7 @@ const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? [
         'https://tasknest-freelance.vercel.app',
+        'https://tasknest-fiver-clone.vercel.app',
         'https://tasknest-freelance.netlify.app',
         'https://your-frontend-domain.vercel.app',
         'https://your-frontend-domain.netlify.app'

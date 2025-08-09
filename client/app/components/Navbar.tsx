@@ -16,7 +16,7 @@ export default function Navbar() {
     try {
       const email = localStorage.getItem('email');
       const token = localStorage.getItem('token');
-      
+
       if (!email || !token) {
         setLoading(false);
         return;
@@ -32,8 +32,8 @@ export default function Navbar() {
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
-      }
-    } catch (error) {
+        }
+      } catch (error) {
       console.error('Failed to fetch user data:', error);
     } finally {
       setLoading(false);
@@ -69,24 +69,24 @@ export default function Navbar() {
               <>
                 <Link href="/messages" className="text-gray-700 hover:text-blue-600">
                   Messages
-                </Link>
+                          </Link>
                 <Link href="/dashboard" className="text-gray-700 hover:text-blue-600">
                   Dashboard
-                </Link>
+                          </Link>
                 <button
                   onClick={handleLogout}
                   className="text-gray-700 hover:text-blue-600"
                 >
                   Logout
-                </button>
-              </>
+                          </button>
+                        </>
             ) : (
               <>
                 <Link href="/login" className="text-gray-700 hover:text-blue-600">
                   Login
                 </Link>
                 <Link href="/register" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                  Sign up
+                    Sign up
                 </Link>
               </>
             )}

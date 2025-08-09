@@ -11,7 +11,7 @@ const getApiBaseUrl = () => {
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       // PRODUCTION: Use your actual backend URL
-      return 'https://tasknest-e3cf.onrender.com';
+      return 'https://freelance-marketplace-backend.onrender.com';
     }
   }
   
@@ -32,7 +32,7 @@ export const getSocketUrl = () => {
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       // PRODUCTION: Use your actual backend URL
-      return 'https://tasknest-e3cf.onrender.com';
+      return 'https://freelance-marketplace-backend.onrender.com';
     }
   }
   return 'http://localhost:5000';
