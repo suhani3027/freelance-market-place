@@ -10,9 +10,7 @@ const getApiBaseUrl = () => {
     // Client-side: check if we're on a production domain
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // PRODUCTION: Replace this with your actual backend URL from Render
-      // Example: https://freelance-marketplace-backend.onrender.com
-      // TODO: Replace the URL below with your actual backend URL
+      // PRODUCTION: Use a default backend URL - you should set NEXT_PUBLIC_API_URL in Vercel
       return 'https://freelance-marketplace-backend.onrender.com';
     }
   }
@@ -33,7 +31,7 @@ export const getSocketUrl = () => {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // PRODUCTION: Replace this with your actual backend URL from Render
+      // PRODUCTION: Use a default backend URL - you should set NEXT_PUBLIC_SOCKET_URL in Vercel
       return 'https://freelance-marketplace-backend.onrender.com';
     }
   }

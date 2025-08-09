@@ -56,14 +56,14 @@ export default function Explore() {
 
   useEffect(() => {
     // Load recent gigs on component mount
-    const loadRecentGigs = async () => {
-      try {
+  const loadRecentGigs = async () => {
+    try {
         const res = await fetch(`${API_BASE_URL}/api/gigs`);
-        if (res.ok) {
-          const data = await res.json();
+      if (res.ok) {
+        const data = await res.json();
           setResults(data.slice(0, 10)); // Show first 10 gigs
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         console.error('Failed to load recent gigs:', error);
       }
     };
@@ -92,17 +92,17 @@ export default function Explore() {
         {/* Search Section */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-8">
           <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <input
-                type="text"
+              <div className="flex-1">
+                <input
+                  type="text"
                 placeholder="Search for people or gigs..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyPress={handleKeyPress}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            <div className="flex gap-2">
+                />
+              </div>
+              <div className="flex gap-2">
               <select
                 value={searchType}
                 onChange={(e) => setSearchType(e.target.value)}
@@ -118,9 +118,9 @@ export default function Explore() {
               >
                 {loading ? 'Searching...' : 'Search'}
               </button>
-            </div>
-          </div>
+              </div>
         </div>
+      </div>
 
         {/* Results Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -148,8 +148,8 @@ export default function Explore() {
                   >
                     View Profile →
                   </a>
-                </div>
-              ) : (
+              </div>
+            ) : (
                 <div>
                   <h3 className="font-semibold mb-2">{item.title}</h3>
                   <p className="text-gray-600 text-sm mb-2">
@@ -164,11 +164,11 @@ export default function Explore() {
                       View Gig →
                     </a>
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                        </div>
+                      )}
+                  </div>
+                ))}
+              </div>
 
         {results.length === 0 && !loading && (
           <div className="text-center py-8">

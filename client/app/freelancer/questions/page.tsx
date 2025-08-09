@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../../lib/api';
 
 const steps = [
   'Profile Basics',
@@ -420,7 +421,7 @@ export default function FreelancerQuestions() {
                     setSubmitting(false);
                     return;
                   }
-                  const res = await fetch('http://localhost:5000/api/freelancer-profile', {
+                  const res = await fetch(`${API_BASE_URL}/api/freelancer-profile`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
