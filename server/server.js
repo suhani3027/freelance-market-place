@@ -20,7 +20,12 @@ const app = express();
 // CORS configuration for both development and production
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-frontend-domain.vercel.app', 'https://your-frontend-domain.netlify.app'] // Replace with your actual frontend domain
+    ? [
+        'https://tasknest-freelance.vercel.app',
+        'https://tasknest-freelance.netlify.app',
+        'https://your-frontend-domain.vercel.app',
+        'https://your-frontend-domain.netlify.app'
+      ] // Add your actual frontend domains here
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
