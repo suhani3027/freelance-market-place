@@ -10,8 +10,9 @@ const getApiBaseUrl = () => {
     // Client-side: check if we're on a production domain
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // TEMPORARY: Replace YOUR_ACTUAL_BACKEND_URL with your actual backend URL from Render
+      // PRODUCTION: Replace this with your actual backend URL from Render
       // Example: https://freelance-marketplace-backend.onrender.com
+      // TODO: Replace the URL below with your actual backend URL
       return 'https://YOUR_ACTUAL_BACKEND_URL.onrender.com';
     }
   }
@@ -32,7 +33,7 @@ export const getSocketUrl = () => {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // TEMPORARY: Replace YOUR_ACTUAL_BACKEND_URL with your actual backend URL from Render
+      // PRODUCTION: Replace this with your actual backend URL from Render
       return 'https://YOUR_ACTUAL_BACKEND_URL.onrender.com';
     }
   }
