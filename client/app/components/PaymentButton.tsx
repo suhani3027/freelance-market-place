@@ -1,34 +1,23 @@
 "use client";
-import React, { useState } from 'react';
+
+import { useState } from 'react';
+import { API_BASE_URL } from '../../lib/api';
 
 interface PaymentButtonProps {
   gigId: string;
   amount: number;
-  gigTitle: string;
-  clientId: string;
-  onPaymentSuccess?: (orderId: string) => void;
-  onPaymentError?: (error: string) => void;
-  disabled?: boolean;
+  title: string;
+  onSuccess?: () => void;
+  onError?: (error: string) => void;
 }
 
-export default function PaymentButton({ 
-  gigId, 
-  amount, 
-  gigTitle, 
-  clientId, 
-  onPaymentSuccess, 
-  onPaymentError,
-  disabled = false 
-}: PaymentButtonProps) {
+export default function PaymentButton({ gigId, amount, title, onSuccess, onError }: PaymentButtonProps) {
   const [loading, setLoading] = useState(false);
 
   const handlePayment = async () => {
-    if (disabled) return;
-    
     setLoading(true);
     try {
-      // Create checkout session
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/payments/create-checkout-session`, {
+      const response = await fetch(`${API_BASE_URL}/api/payments/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -36,62 +25,36 @@ export default function PaymentButton({
         },
         body: JSON.stringify({
           gigId,
-          clientId,
           amount,
-          gigTitle
+          title
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to create checkout session');
-      }
-
-      const { url } = await response.json();
-
-      if (url) {
-        // Redirect to Stripe Checkout
-        window.location.href = url;
+      if (response.ok) {
+        const data = await response.json();
+        if (data.url) {
+          window.location.href = data.url;
+        } else {
+          onError?.('Failed to create checkout session');
+        }
       } else {
-        throw new Error('No checkout URL received');
+        const errorData = await response.json();
+        onError?.(errorData.message || 'Payment failed');
       }
-
-    } catch (error: any) {
-      console.error('Payment error:', error);
-      onPaymentError?.(error.message || 'Payment failed');
+    } catch (error) {
+      onError?.('Payment failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="w-full">
-      <button
-        onClick={handlePayment}
-        disabled={disabled || loading}
-        className={`w-full px-6 py-3 rounded-lg font-semibold text-white transition-colors ${
-          disabled
-            ? 'bg-gray-400 cursor-not-allowed' 
-            : loading 
-              ? 'bg-blue-500 cursor-wait' 
-              : 'bg-green-600 hover:bg-green-700'
-        }`}
-      >
-        {loading ? (
-          <div className="flex items-center justify-center">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-            Processing...
-          </div>
-        ) : (
-          `Purchase Now - $${amount}`
-        )}
-      </button>
-      
-      {disabled && (
-        <p className="text-sm text-gray-500 mt-2 text-center">
-          You cannot purchase your own gig
-        </p>
-      )}
-    </div>
+    <button
+      onClick={handlePayment}
+      disabled={loading}
+      className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+    >
+      {loading ? 'Processing...' : `Pay $${amount}`}
+    </button>
   );
 } 

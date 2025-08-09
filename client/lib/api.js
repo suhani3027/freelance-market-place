@@ -10,8 +10,8 @@ const getApiBaseUrl = () => {
     // Client-side: check if we're on a production domain
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // PRODUCTION: Use a default backend URL - you should set NEXT_PUBLIC_API_URL in Vercel
-      return 'https://freelance-marketplace-backend.onrender.com';
+      // PRODUCTION: Use your actual backend URL
+      return 'https://tasknest-e3cf.onrender.com';
     }
   }
   
@@ -31,8 +31,8 @@ export const getSocketUrl = () => {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      // PRODUCTION: Use a default backend URL - you should set NEXT_PUBLIC_SOCKET_URL in Vercel
-      return 'https://freelance-marketplace-backend.onrender.com';
+      // PRODUCTION: Use your actual backend URL
+      return 'https://tasknest-e3cf.onrender.com';
     }
   }
   return 'http://localhost:5000';
