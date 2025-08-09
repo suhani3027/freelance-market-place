@@ -110,7 +110,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold mb-4">Welcome back, {user.name}!</h2>
           <p className="text-gray-600">
-            You are logged in as a {user.role}. Here's your activity overview.
+            You are logged in as a {user.role}. Here&apos;s your activity overview.
           </p>
         </div>
       </div>

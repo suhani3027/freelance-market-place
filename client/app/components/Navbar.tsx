@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { API_BASE_URL } from '../../lib/api';
 
 export default function Navbar() {
@@ -51,27 +52,27 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <a href="/" className="text-xl font-bold text-blue-600">
+            <Link href="/" className="text-xl font-bold text-blue-600">
               TaskNest
-            </a>
+            </Link>
           </div>
 
           <div className="flex items-center space-x-4">
-            <a href="/explore" className="text-gray-700 hover:text-blue-600">
+            <Link href="/explore" className="text-gray-700 hover:text-blue-600">
               Explore
-            </a>
-            <a href="/gigs" className="text-gray-700 hover:text-blue-600">
+            </Link>
+            <Link href="/gigs" className="text-gray-700 hover:text-blue-600">
               Gigs
-            </a>
+            </Link>
             
             {user ? (
               <>
-                <a href="/messages" className="text-gray-700 hover:text-blue-600">
+                <Link href="/messages" className="text-gray-700 hover:text-blue-600">
                   Messages
-                </a>
-                <a href="/dashboard" className="text-gray-700 hover:text-blue-600">
+                </Link>
+                <Link href="/dashboard" className="text-gray-700 hover:text-blue-600">
                   Dashboard
-                </a>
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="text-gray-700 hover:text-blue-600"
@@ -81,12 +82,12 @@ export default function Navbar() {
               </>
             ) : (
               <>
-                <a href="/login" className="text-gray-700 hover:text-blue-600">
+                <Link href="/login" className="text-gray-700 hover:text-blue-600">
                   Login
-                </a>
-                <a href="/register" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                </Link>
+                <Link href="/register" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
                   Sign up
-                </a>
+                </Link>
               </>
             )}
           </div>

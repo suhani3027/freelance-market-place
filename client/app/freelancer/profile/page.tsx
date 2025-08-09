@@ -20,7 +20,7 @@ export default function FreelancerProfile() {
         setLoading(false);
         return;
       }
-
+      
       const res = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(email)}`);
       if (res.ok) {
         const profileData = await res.json();
@@ -87,16 +87,16 @@ export default function FreelancerProfile() {
     return (
       <div className="container mx-auto p-4">
         <div className="text-center text-red-500">Error: {error}</div>
-      </div>
-    );
+    </div>
+  );
   }
 
   if (!profile) {
     return (
       <div className="container mx-auto p-4">
         <div className="text-center">Profile not found.</div>
-      </div>
-    );
+    </div>
+  );
   }
 
   return (
@@ -106,10 +106,10 @@ export default function FreelancerProfile() {
           <div className="flex items-center space-x-4 mb-6">
             <img
               src={profile.profilePhoto || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png'}
-              alt="Profile"
+                      alt="Profile" 
               className="w-20 h-20 rounded-full"
             />
-            <div>
+                      <div>
               <h1 className="text-2xl font-bold">{profile.name}</h1>
               <p className="text-gray-600">{profile.title}</p>
               <p className="text-gray-500">{profile.email}</p>
@@ -119,16 +119,16 @@ export default function FreelancerProfile() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h3 className="font-semibold mb-2">Skills</h3>
-              <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2">
                 {profile.skills && profile.skills.map((skill, index) => (
-                  <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                    {skill}
-                  </span>
-                ))}
-              </div>
-            </div>
+                          <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
 
-            <div>
+                    <div>
               <h3 className="font-semibold mb-2">Experience</h3>
               <p className="text-gray-600">{profile.experience}</p>
             </div>
@@ -144,4 +144,4 @@ export default function FreelancerProfile() {
       </div>
     </div>
   );
-} 
+}
