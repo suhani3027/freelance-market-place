@@ -13,7 +13,7 @@ const getApiBaseUrl = () => {
       // PRODUCTION: Replace this with your actual backend URL from Render
       // Example: https://freelance-marketplace-backend.onrender.com
       // TODO: Replace the URL below with your actual backend URL
-      return 'https://YOUR_ACTUAL_BACKEND_URL.onrender.com';
+      return 'https://freelance-marketplace-backend.onrender.com';
     }
   }
   
@@ -34,7 +34,7 @@ export const getSocketUrl = () => {
     const hostname = window.location.hostname;
     if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
       // PRODUCTION: Replace this with your actual backend URL from Render
-      return 'https://YOUR_ACTUAL_BACKEND_URL.onrender.com';
+      return 'https://freelance-marketplace-backend.onrender.com';
     }
   }
   return 'http://localhost:5000';
