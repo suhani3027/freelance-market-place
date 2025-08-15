@@ -1,28 +1,39 @@
 import express from 'express';
-import * as connectionController from '../controllers/connectionController.js';
 import { authenticateJWT } from '../middleware/authMiddleware.js';
+import {
+  sendConnectionRequest,
+  acceptConnectionRequest,
+  rejectConnectionRequest,
+  getUserConnections,
+  getPendingRequests,
+  checkConnectionStatus,
+  removeConnection
+} from '../controllers/connectionController.js';
 
 const router = express.Router();
 
-// Send a connection request
-router.post('/send', authenticateJWT, connectionController.sendRequest);
+// All routes require authentication
+router.use(authenticateJWT);
 
-// Accept a connection request
-router.post('/accept', authenticateJWT, connectionController.acceptRequest);
+// Send connection request
+router.post('/request', sendConnectionRequest);
 
-// Reject a connection request
-router.post('/reject', authenticateJWT, connectionController.rejectRequest);
+// Accept connection request
+router.put('/accept/:connectionId', acceptConnectionRequest);
 
-// List all accepted connections for the user
-router.get('/list', authenticateJWT, connectionController.listConnections);
+// Reject connection request
+router.put('/reject/:connectionId', rejectConnectionRequest);
 
-// List all pending requests for the user
-router.get('/pending', authenticateJWT, connectionController.listPending);
+// Get user's accepted connections
+router.get('/connections', getUserConnections);
 
-// Get connection status between two users
-router.get('/status/:userId', authenticateJWT, connectionController.getConnectionStatus);
+// Get pending connection requests
+router.get('/pending', getPendingRequests);
 
-// Check if connected with another user
-router.get('/check/:userId', authenticateJWT, connectionController.checkConnection);
+// Check connection status with another user
+router.get('/status/:otherUserEmail', checkConnectionStatus);
+
+// Remove connection
+router.delete('/:connectionId', removeConnection);
 
 export default router; 

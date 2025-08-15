@@ -6,7 +6,8 @@ import {
   updateOrderStatus, 
   getOrderDetails,
   testStripe,
-  testCheckoutSession
+  testCheckoutSession,
+  handleStripeWebhook
 } from '../controllers/paymentController.js';
 import { authenticateJWT } from '../middleware/authMiddleware.js';
 
@@ -15,6 +16,9 @@ const router = express.Router();
 // Test routes (no authentication needed)
 router.get('/test-stripe', testStripe);
 router.get('/test-checkout-session', testCheckoutSession);
+
+// Stripe webhook (no authentication needed - Stripe handles security)
+router.post('/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
 // Payment routes
 router.post('/create-checkout-session', authenticateJWT, createCheckoutSession);

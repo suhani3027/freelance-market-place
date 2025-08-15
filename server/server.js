@@ -1,94 +1,157 @@
-import './loadEnv.js';
 import express from 'express';
 import cors from 'cors';
-import { connectDB } from './config/db.js';
-import { register, login, getUserByEmail, getAllUsers, searchUsers } from './routes/authRoutes.js';
-import gigRoutes from './routes/gigRoutes.js';
-import freelancerProfileRoutes from './routes/freelancerProfileRoutes.js';
-import proposalRoutes from './routes/proposalRoutes.js';
-import connectionRoutes from './routes/connectionRoutes.js';
-import messageRoutes from './routes/messageRoutes.js';
-import notificationRoutes from './routes/notificationRoutes.js';
-import paymentRoutes from './routes/paymentRoutes.js';
-import reviewRoutes from './routes/reviewRoutes.js';
-import http from 'http';
+import dotenv from 'dotenv';
+import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { connectDB } from './config/db.js';
+import './loadEnv.js';
 import socketHandler from './socket/index.js';
 
-const app = express();
+// Load environment variables
+// loadEnv();
 
-// CORS configuration for both development and production
+// Import routes
+import authRoutes from './routes/authRoutes.js';
+import gigRoutes from './routes/gigRoutes.js';
+import proposalRoutes from './routes/proposalRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
+import searchRoutes from './routes/searchRoutes.js';
+import statsRoutes from './routes/statsRoutes.js';
+import profileRoutes from './routes/profileRoutes.js';
+import freelancerProfileRoutes from './routes/freelancerProfileRoutes.js';
+import connectionRoutes from './routes/connectionRoutes.js';
+import messageRoutes from './routes/messageRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+
+const app = express();
+const server = createServer(app);
+
+// Socket.io setup with enhanced CORS
+const io = new Server(server, {
+  cors: {
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      
+      const allowedOrigins = [
+        process.env.CLIENT_URL || "http://localhost:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://tasknest-e3cf.onrender.com"
+      ];
+      
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  }
+});
+
+// Initialize socket handler
+socketHandler(io);
+
+// Enhanced CORS configuration
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? [
-        'https://tasknest-freelance.vercel.app',
-        'https://tasknest-fiver-clone.vercel.app',
-        'https://tasknest-freelance.netlify.app',
-        'https://your-frontend-domain.vercel.app',
-        'https://your-frontend-domain.netlify.app'
-      ] // Add your actual frontend domains here
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.CLIENT_URL || "http://localhost:3000",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "https://tasknest-e3cf.onrender.com",
+      // Add your production domains here
+      process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : []
+    ].flat().filter(Boolean);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`🚫 CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Origin', 
+    'X-Requested-With', 
+    'Content-Type', 
+    'Accept', 
+    'Authorization',
+    'X-API-Key'
+  ],
+  exposedHeaders: ['Content-Length', 'X-Total-Count'],
+  maxAge: 86400 // 24 hours
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
 
-const server = http.createServer(app);
-
-const io = new Server(server, {
-  cors: corsOptions
+// Additional security headers
+app.use((req, res, next) => {
+  res.header('X-Content-Type-Options', 'nosniff');
+  res.header('X-Frame-Options', 'DENY');
+  res.header('X-XSS-Protection', '1; mode=block');
+  res.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
 });
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-socketHandler(io);
-
-// Make io available to routes
-app.set('io', io);
-
-// Connect Database
-connectDB();
-
-// Root route for health check
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Freelance Marketplace API is running!',
-    status: 'success',
-    timestamp: new Date().toISOString()
-  });
-});
+// Routes
+app.use('/api', authRoutes);
+app.use('/api/gigs', gigRoutes);
+app.use('/api/proposals', proposalRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/stats', statsRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/freelancer-profile', freelancerProfileRoutes);
+app.use('/api/connections', connectionRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/payment', paymentRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Routes
-app.post('/api/register', register);
-app.post('/api/login', login);
-app.get('/api/user/:email', getUserByEmail);
-app.get('/api/users', getAllUsers);
-app.get('/api/users/search', searchUsers);
-app.use('/api/gigs', gigRoutes);
-app.use('/api/freelancer-profile', freelancerProfileRoutes);
-app.use('/api/proposals', proposalRoutes);
-app.use('/api/connections', connectionRoutes);
-app.use('/api/messages', messageRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/reviews', reviewRoutes);
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Something went wrong!' });
+});
 
-// 404 handler for undefined routes - Fixed the wildcard pattern
+// 404 handler
 app.use((req, res) => {
-  res.status(404).json({ 
-    message: 'Route not found',
-    path: req.originalUrl
-  });
+  res.status(404).json({ message: 'Route not found' });
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+const startServer = async () => {
+  try {
+    await connectDB();
+    console.log('✅ Database connected successfully');
+    
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:3000'}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+export { io };

@@ -20,23 +20,36 @@ export default function FreelancerLogin() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || 'Login failed.');
+        setError(data.message || data.error || 'Login failed.');
       } else {
         localStorage.setItem('token', data.token);
-        localStorage.setItem('role', 'freelancer');
-        localStorage.setItem('email', form.email);
-        localStorage.setItem('name', data.user.name);
-        localStorage.setItem('profilePhoto', data.user.profilePhoto || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png');
+        localStorage.setItem('role', data.role || 'freelancer');
+        localStorage.setItem('email', data.email || form.email);
+        localStorage.setItem('name', (data.user?.name) || data.name || form.email.split('@')[0]);
+        localStorage.setItem('profilePhoto', (data.user?.profilePhoto) || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png');
         
         // Check if freelancer profile exists
         try {
-          const profileRes = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(form.email)}`);
+          const profileRes = await fetch(`${API_BASE_URL}/api/freelancer-profile/me`, {
+            headers: {
+              'Authorization': `Bearer ${data.token}`
+            }
+          });
           if (profileRes.ok) {
-            router.push('/freelancer/profile');
+            const profileData = await profileRes.json();
+            if (profileData.title && profileData.overview && profileData.skills && profileData.skills.length > 0) {
+              // Profile is complete, go to dashboard
+              router.push('/dashboard');
+            } else {
+              // Profile exists but incomplete, go to profile setup
+              router.push('/freelancer/profile');
+            }
           } else {
+            // No profile found, go to welcome page
             router.push('/welcome');
           }
         } catch (profileErr) {
+          console.error('Profile check error:', profileErr);
           router.push('/welcome');
         }
       }

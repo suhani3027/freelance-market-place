@@ -47,12 +47,19 @@ export default function EditGigPage() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
       const res = await fetch(`${apiUrl}/api/gigs/${gigId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          // Ensure authenticated request; backend requires JWT and client role
+          "Authorization": `Bearer ${localStorage.getItem('token')}`
+        },
         body: JSON.stringify({ title, amount, technology, duration, description, clientId }),
       });
+      if (res.status === 401 || res.status === 403) {
+        throw new Error("Not authorized. Please log in as the gig owner (client) and try again.");
+      }
       if (!res.ok) throw new Error("Failed to update gig");
       setSuccess("Gig updated successfully!");
-      setTimeout(() => router.push("/dashboard"), 1000);
+      setTimeout(() => router.push("/my-gigs"), 1000);
     } catch (err: any) {
       setError(err.message || "Something went wrong");
     }

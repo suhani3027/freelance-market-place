@@ -2,7 +2,7 @@ import { Review } from '../models/review.js';
 import { Order } from '../models/order.js';
 import { Gig } from '../models/gig.js';
 import { User } from '../models/user.js';
-import { notifyProfileReview } from '../services/notificationService.js';
+// import { notifyProfileReview, notifyGigReview } from '../services/notificationService.js';
 
 // Create a new review (for both gigs and profiles)
 export const createReview = async (req, res) => {
@@ -22,10 +22,18 @@ export const createReview = async (req, res) => {
     const reviewerId = req.user.email;
     const reviewerRole = req.user.role || 'client';
 
-    // Validate required fields
-    if (!reviewType || !targetId || !rating || !comment) {
+    // Validate required fields with better error messages
+    const missingFields = [];
+    if (!reviewType) missingFields.push('reviewType');
+    if (!targetId) missingFields.push('targetId');
+    if (!rating) missingFields.push('rating');
+    if (!comment) missingFields.push('comment');
+    
+    if (missingFields.length > 0) {
       return res.status(400).json({ 
-        message: 'Missing required fields: reviewType, targetId, rating, comment' 
+        message: `Missing required fields: ${missingFields.join(', ')}`,
+        missingFields,
+        received: { reviewType, targetId, rating, comment }
       });
     }
 
@@ -75,40 +83,18 @@ export const createReview = async (req, res) => {
           return res.status(400).json({ message: 'Order must be completed to leave a review' });
         }
 
-        // Check if review already exists for this order
+        // Check if review already exists for this specific order (only one review per order)
         const existingReview = await Review.findOne({ orderId, reviewType: 'gig' });
         if (existingReview) {
           return res.status(400).json({ message: 'Review already exists for this order' });
         }
-      } else {
-        // For gig reviews without orderId, check if user has already reviewed this gig
-        const existingReview = await Review.findOne({ 
-          gigId, 
-          reviewerId, 
-          reviewType: 'gig',
-          orderId: { $exists: false }
-        });
-        if (existingReview) {
-          return res.status(400).json({ message: 'You have already reviewed this gig' });
-        }
       }
     }
 
-    // For profile reviews, check if user has worked together
+    // For profile reviews, allow multiple reviews (remove duplicate check)
     if (reviewType === 'profile') {
       if (!profileId) {
         return res.status(400).json({ message: 'profileId is required for profile reviews' });
-      }
-
-      // Check if review already exists from this reviewer to this target
-      const existingReview = await Review.findOne({ 
-        reviewType: 'profile',
-        reviewerId,
-        targetId,
-        profileId
-      });
-      if (existingReview) {
-        return res.status(400).json({ message: 'You have already reviewed this profile' });
       }
     }
 
@@ -132,10 +118,19 @@ export const createReview = async (req, res) => {
 
     await review.save();
 
-    // Send notification for profile reviews
-    if (reviewType === 'profile' && targetUser._id) {
-      await notifyProfileReview(req.user.id, targetUser._id, rating, isAnonymous);
-    }
+    // Send notifications
+    // if (reviewType === 'profile' && targetUser._id) {
+    //   await notifyProfileReview(req.user.id, targetUser._id, rating, isAnonymous);
+    // } else if (reviewType === 'gig' && gigId) {
+    //   const gig = await Gig.findById(gigId);
+    //   if (gig && gig.clientId) {
+    //     // Find the gig owner's user ID
+    //     const gigOwner = await User.findOne({ email: gig.clientId });
+    //     if (gigOwner && gigOwner._id) {
+    //       await notifyGigReview(req.user.id, gigOwner._id, gigId, gig.title, rating, isAnonymous);
+    //   }
+    // }
+    // }
 
     res.status(201).json(review);
   } catch (error) {

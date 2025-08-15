@@ -1,10 +1,11 @@
 const socketHandler = (io) => {
   io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
+    socket.on('join', (data) => {
+      socket.join(data.room);
+    });
 
     socket.on('joinRoom', (room) => {
       socket.join(room);
-      console.log(`Socket ${socket.id} joined room ${room}`);
     });
 
     socket.on('sendMessage', ({ msg, room }) => {
@@ -12,7 +13,7 @@ const socketHandler = (io) => {
     });
 
     socket.on('disconnect', () => {
-      console.log('User disconnected');
+      // User disconnected
     });
   });
 
@@ -22,7 +23,6 @@ const socketHandler = (io) => {
       recipient: freelancerEmail,
       ...notificationData
     });
-    console.log(`Payment notification emitted to ${freelancerEmail}`);
   };
 };
 

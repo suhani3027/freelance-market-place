@@ -43,7 +43,7 @@ export default function FeedbackDashboard() {
   const loadReviews = async (userEmail: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/reviews/freelancer/${encodeURIComponent(userEmail)}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/reviews/profile/${encodeURIComponent(userEmail)}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }

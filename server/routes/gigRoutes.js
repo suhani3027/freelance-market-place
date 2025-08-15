@@ -2,7 +2,7 @@ import express from 'express';
 import { Gig } from '../models/gig.js';
 import parser from '../utils/multer.js';
 import cloudinary from '../utils/cloudinary.js';
-import { notifyGigCreated } from '../services/notificationService.js';
+// import { notifyGigCreated } from '../services/notificationService.js';
 import { authenticateJWT } from '../middleware/authMiddleware.js';
 import { User } from '../models/user.js';
 
@@ -112,8 +112,8 @@ router.post('/', authenticateJWT, requireClientRole, parser.single('image'), asy
     
     await gig.save();
     
-    // Send notification for gig creation
-    await notifyGigCreated(gig._id, clientId, title);
+    // Send notification for gig creation - use the actual user ID from JWT token
+    // await notifyGigCreated(gig._id, req.user.id, title);
     res.status(201).json(gig);
   } catch (error) {
     console.error('Gig creation error:', error);
@@ -251,24 +251,19 @@ router.get('/', async (req, res) => {
 });
 
 // Search gigs endpoint - ALL USERS CAN SEARCH
-router.get('/search', async (req, res) => {
+// REMOVED: This route conflicts with the main search route
+// Use /api/search instead for all search functionality
+// router.get('/search', async (req, res) => { ... });
+
+// Get gigs by category (maps to skills contains category term)
+router.get('/category/:category', async (req, res) => {
   try {
-    const { q } = req.query;
-    
-    if (!q) {
-      return res.status(400).json({ message: 'Search query is required' });
+    const { category } = req.params;
+    if (!category) {
+      return res.status(400).json({ message: 'Category is required' });
     }
-    
-    const query = {
-      $or: [
-        { title: { $regex: q, $options: 'i' } },
-        { description: { $regex: q, $options: 'i' } },
-        { skills: { $in: [new RegExp(q, 'i')] } },
-        { technology: { $regex: q, $options: 'i' } }
-      ]
-    };
-    
-    const gigs = await Gig.find(query).sort({ createdAt: -1 });
+    const regex = new RegExp(category, 'i');
+    const gigs = await Gig.find({ skills: { $in: [regex] } }).sort({ createdAt: -1 });
     res.status(200).json(gigs);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -313,6 +308,31 @@ router.put('/:id', authenticateJWT, requireClientRole, async (req, res) => {
   }
 });
 
+// Toggle gig status (active/paused) - CLIENT ONLY
+router.patch('/:id/toggle-status', authenticateJWT, requireClientRole, async (req, res) => {
+  try {
+    const existingGig = await Gig.findById(req.params.id);
+    if (!existingGig) {
+      return res.status(404).json({ message: 'Gig not found' });
+    }
+    
+    if (existingGig.clientId !== req.user.email) {
+      return res.status(403).json({ error: 'You can only modify your own gigs' });
+    }
+    
+    const newStatus = existingGig.status === 'active' ? 'paused' : 'active';
+    const updatedGig = await Gig.findByIdAndUpdate(
+      req.params.id,
+      { status: newStatus },
+      { new: true }
+    );
+    
+    res.status(200).json(updatedGig);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // Delete a gig - CLIENT ONLY (and only their own gigs)
 router.delete('/:id', authenticateJWT, requireClientRole, async (req, res) => {
   try {
@@ -352,6 +372,34 @@ router.post('/upload', authenticateJWT, requireClientRole, parser.single('image'
     res.json({ imageUrl: result.secure_url });
   } catch (err) {
     res.status(500).json({ message: 'Image upload failed', error: err.message });
+  }
+});
+
+// Get recent gigs - PUBLIC ENDPOINT
+router.get('/recent', async (req, res) => {
+  try {
+    const recentGigs = await Gig.find({ status: 'active' })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate('clientId', 'name email')
+      .lean();
+    
+    // Transform the data to include client name
+    const transformedGigs = recentGigs.map(gig => ({
+      _id: gig._id,
+      title: gig.title,
+      description: gig.description,
+      budget: gig.amount,
+      skills: gig.skills || gig.technology || [],
+      clientName: gig.clientId?.name || gig.clientId?.email || 'Anonymous',
+      createdAt: gig.createdAt,
+      status: gig.status
+    }));
+    
+    res.json(transformedGigs);
+  } catch (error) {
+    console.error('Error fetching recent gigs:', error);
+    res.status(500).json({ message: 'Failed to fetch recent gigs' });
   }
 });
 

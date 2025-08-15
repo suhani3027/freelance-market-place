@@ -12,13 +12,43 @@ router.post('/', async (req, res) => {
     if (!userId) return res.status(400).json({ message: 'userId is required' });
     if (!email) return res.status(400).json({ message: 'email is required' });
     
-    const profile = await FreelancerProfile.findOneAndUpdate(
-      { userId },
-      { $set: { ...profileData, email } },
-      { new: true, upsert: true }
+    // Clean profileData to remove any undefined or null values
+    const cleanProfileData = Object.fromEntries(
+      Object.entries(profileData).filter(([_, value]) => value !== undefined && value !== null)
     );
+    
+    // Use findOneAndUpdate with upsert to handle existing profiles gracefully
+    const profile = await FreelancerProfile.findOneAndUpdate(
+      { email },
+      { 
+        $set: cleanProfileData,
+        $setOnInsert: { email, userId }
+      },
+      { 
+        new: true, 
+        upsert: true,
+        setDefaultsOnInsert: true
+      }
+    );
+    
     res.status(200).json(profile);
   } catch (error) {
+    console.error('Profile creation/update error:', error);
+    
+    // Handle duplicate key error specifically
+    if (error.code === 11000) {
+      if (error.keyPattern.email) {
+        return res.status(400).json({ 
+          message: 'A profile with this email already exists. Please use a different email or update your existing profile.' 
+        });
+      }
+      if (error.keyPattern.userId) {
+        return res.status(500).json({ 
+          message: 'A profile for this user already exists. Please update your existing profile.' 
+        });
+      }
+    }
+    
     res.status(500).json({ message: error.message });
   }
 });
@@ -90,9 +120,12 @@ router.put('/:email', authenticateJWT, async (req, res) => {
       return res.status(403).json({ message: 'You can only update your own profile' });
     }
     
+    // Remove userId from updateData if it exists to prevent conflicts
+    const { userId, ...cleanUpdateData } = updateData;
+    
     const profile = await FreelancerProfile.findOneAndUpdate(
       { email: decodedEmail },
-      { $set: updateData },
+      { $set: cleanUpdateData },
       { new: true, upsert: true }
     );
     

@@ -6,10 +6,13 @@ const userSchema = new mongoose.Schema({
   password: String,
   companyName: String,
   companySize: String,
+  industry: String,
+  phone: String,
   website: String,
+  linkedin: String,
   businessDescription: String,
   role: { type: String, enum: ['client', 'freelancer'], default: 'client' },
-});
+}, { timestamps: true });
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 

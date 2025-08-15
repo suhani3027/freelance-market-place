@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 interface Gig {
   _id: string;
@@ -22,6 +22,7 @@ interface ClientInfo {
 }
 
 function GigListContent() {
+  const router = useRouter();
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,12 +87,8 @@ function GigListContent() {
         Promise.all(
           gigs.map(async (gig: Gig) => {
             try {
-              const token = localStorage.getItem('token');
-              const res = await fetch(`${apiUrl}/api/proposals/gig/${gig._id}`, {
-                headers: {
-                  'Authorization': `Bearer ${token}`
-                }
-              });
+              // Use public endpoint to avoid 403 errors
+              const res = await fetch(`${apiUrl}/api/proposals/gig/${gig._id}/public`);
               if (res.ok) {
                 const proposals = await res.json();
                 return { gigId: gig._id, count: proposals.length };
@@ -190,8 +187,10 @@ function GigListContent() {
                 <div className="p-4">
                   {/* Freelancer/Client Info */}
                   <div className="flex items-center mb-3">
-                    <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center mr-3">
-                      <span className="text-sm font-medium text-gray-700">{clientInitial}</span>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-3 ${
+                      ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500', 'bg-teal-500'][Math.abs(clientInitial.charCodeAt(0)) % 6]
+                    }`}>
+                      <span className="text-sm font-medium text-white">{clientInitial}</span>
                     </div>
                     <div>
                       <div className="font-semibold text-sm">{client?.name || gig.clientId?.split('@')[0] || 'Unknown'}</div>
@@ -239,19 +238,27 @@ function GigListContent() {
 
                   {/* Action Buttons */}
                   {role && role.toLowerCase() === 'freelancer' && (
-                    <button
-                      className="w-full mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                                             onClick={() => {
-                         setSelectedGig(gig);
-                         setShowModal(true);
-                         setCoverLetter(`I am excited to work on your "${gig.title}" project. I have relevant experience in ${gig.skills && gig.skills.length > 0 ? gig.skills.join(', ') : 'this field'} and I believe I can deliver high-quality results within your timeline. Please let me know if you have any questions about my approach.`);
-                         setProposalAmount(gig.amount ? gig.amount.toString() : '');
-                         setProposalSuccess('');
-                         setProposalError('');
-                       }}
-                    >
-                      Apply Now
-                    </button>
+                    <div className="flex gap-2 mt-3">
+                                             <button
+                         className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+                         onClick={() => router.push(`/gigs/${gig._id}`)}
+                       >
+                         View
+                       </button>
+                      <button
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                        onClick={() => {
+                          setSelectedGig(gig);
+                          setShowModal(true);
+                          setCoverLetter(`I am excited to work on your "${gig.title}" project. I have relevant experience in ${gig.skills && gig.skills.length > 0 ? gig.skills.join(', ') : 'this field'} and I believe I can deliver high-quality results within your timeline. Please let me know if you have any questions about my approach.`);
+                          setProposalAmount(gig.amount ? gig.amount.toString() : '');
+                          setProposalSuccess('');
+                          setProposalError('');
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </div>
                   )}
                   
                   {/* Client Management Buttons */}

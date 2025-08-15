@@ -11,6 +11,9 @@ interface Order {
   createdAt: string;
   completedAt?: string;
   cancelledAt?: string;
+  freelancerEmail?: string;
+  clientEmail?: string;
+  gigId?: string;
 }
 
 interface OrdersListProps {
@@ -71,6 +74,28 @@ export default function OrdersList({ userId, role }: OrdersListProps) {
 
   const submitReview = async (orderId: string, rating: number, comment: string) => {
     try {
+      // Find the order to get gig and user information
+      const order = orders.find(o => o._id === orderId);
+      if (!order) {
+        setError('Order not found');
+        return;
+      }
+
+      // Get current user role from localStorage
+      const userRole = localStorage.getItem('role');
+      if (!userRole) {
+        setError('User role not found');
+        return;
+      }
+
+      // Determine the target user for the review
+      const targetId = userRole === 'client' ? order.freelancerEmail : order.clientEmail;
+      
+      if (!targetId) {
+        setError('Target user not found');
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
         headers: {
@@ -78,18 +103,25 @@ export default function OrdersList({ userId, role }: OrdersListProps) {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          orderId,
-          rating,
-          comment
+          reviewType: 'gig',
+          targetId: targetId,
+          gigId: order.gigId,
+          orderId: orderId,
+          rating: rating,
+          comment: comment,
+          title: `Review for ${order.gigTitle}`
         })
       });
 
       if (response.ok) {
         fetchOrders();
+        alert('Review submitted successfully!');
       } else {
-        setError('Failed to submit review');
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to submit review');
       }
     } catch (error) {
+      console.error('Review submission error:', error);
       setError('Failed to submit review');
     }
   };

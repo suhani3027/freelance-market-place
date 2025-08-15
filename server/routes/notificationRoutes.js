@@ -34,10 +34,16 @@ router.get('/', authenticateJWT, async (req, res) => {
 router.get('/unread-count', authenticateJWT, async (req, res) => {
   try {
     const userId = req.user.id;
+    
+    if (!userId) {
+      return res.status(400).json({ message: 'User ID not found in token' });
+    }
+    
     const count = await Notification.countDocuments({ 
       recipient: userId, 
       read: false 
     });
+    
     res.json({ count });
   } catch (error) {
     res.status(500).json({ message: error.message });

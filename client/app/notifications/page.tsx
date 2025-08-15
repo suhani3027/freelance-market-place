@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../../lib/api';
+import { useSocket } from '../components/SocketProvider';
 
 export default function Notifications() {
+  const { updateUnreadCounts } = useSocket();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -11,7 +13,9 @@ export default function Notifications() {
 
   useEffect(() => {
     fetchNotifications();
-  }, [page]);
+    // Update unread counts when page loads
+    updateUnreadCounts();
+  }, [page, updateUnreadCounts]);
 
   const fetchNotifications = async () => {
     try {
@@ -23,12 +27,10 @@ export default function Notifications() {
       
       if (res.ok) {
         const data = await res.json();
-        if (page === 1) {
-          setNotifications(data);
-        } else {
-          setNotifications(prev => [...prev, ...data]);
-        }
-        setHasMore(data.length === 20);
+        const list = Array.isArray(data) ? data : (data.notifications || []);
+        if (page === 1) setNotifications(list); else setNotifications(prev => [...prev, ...list]);
+        const totalPages = data.totalPages ?? (list.length === 20 ? page + 1 : page);
+        setHasMore(page < totalPages);
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
@@ -54,6 +56,8 @@ export default function Notifications() {
               : notification
           )
         );
+        // Update unread counts after marking as read
+        updateUnreadCounts();
       }
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
@@ -73,6 +77,8 @@ export default function Notifications() {
         setNotifications(prev => 
           prev.map(notification => ({ ...notification, read: true }))
         );
+        // Update unread counts after marking all as read
+        updateUnreadCounts();
       }
     } catch (error) {
       console.error('Failed to mark all notifications as read:', error);
@@ -92,9 +98,48 @@ export default function Notifications() {
         setNotifications(prev => 
           prev.filter(notification => notification._id !== notificationId)
         );
+        // Update unread counts after deleting
+        updateUnreadCounts();
       }
     } catch (error) {
       console.error('Failed to delete notification:', error);
+    }
+  };
+
+  const handleNotificationClick = (notification) => {
+    // Mark as read first
+    if (!notification.read) {
+      markAsRead(notification._id);
+    }
+
+    // Get user role from localStorage
+    const userRole = localStorage.getItem('role');
+
+    // Navigate based on notification type
+    switch (notification.type) {
+      case 'gig_proposal':
+        // Navigate to client proposals page
+        if (userRole === 'client') {
+          window.location.href = '/clients/proposals';
+        }
+        break;
+      case 'connection_request':
+        // Navigate to connections page
+        break;
+      case 'message':
+        // Navigate to messages page
+        window.location.href = '/messages';
+        break;
+      case 'gig_accepted':
+      case 'gig_rejected':
+        // Navigate to freelancer proposals page
+        if (userRole === 'freelancer') {
+          window.location.href = '/freelancer/proposals';
+        }
+        break;
+      default:
+        // For other types, just mark as read
+        break;
     }
   };
 
@@ -130,9 +175,10 @@ export default function Notifications() {
             {notifications.map((notification) => (
               <div
                 key={notification._id}
-                className={`p-4 border rounded-lg ${
+                className={`p-4 border rounded-lg cursor-pointer hover:shadow-md transition-shadow ${
                   notification.read ? 'bg-gray-50' : 'bg-white border-blue-200'
                 }`}
+                onClick={() => handleNotificationClick(notification)}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">

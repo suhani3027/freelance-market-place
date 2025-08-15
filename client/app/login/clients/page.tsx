@@ -29,11 +29,17 @@ export default function ClientLogin() {
         localStorage.setItem("token", data.token);
         localStorage.setItem("role", data.role || "client");
         localStorage.setItem("email", data.email || form.email);
-        localStorage.setItem("name", data.name || form.email.split("@")[0]);
+        localStorage.setItem("name", data.name || data.user?.name || form.email.split("@")[0]);
         localStorage.setItem("profilePhoto", "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png");
-        router.push("/dashboard");
+        
+        // Redirect based on role
+        if (data.role === 'freelancer') {
+          router.push("/dashboard");
+        } else {
+          router.push("/dashboard");
+        }
       } else {
-        setMessage(data.message || "Login failed.");
+        setMessage(data.message || data.error || "Login failed.");
       }
     } catch (err) {
       setMessage("Server error. Please try again.");

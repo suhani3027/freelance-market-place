@@ -77,4 +77,6 @@ proposalSchema.index({ status: 1 });
 proposalSchema.index({ freelancerId: 1 });
 proposalSchema.index({ clientId: 1 });
 
-export const Proposal = mongoose.model('Proposal', proposalSchema); 
+const Proposal = mongoose.models.Proposal || mongoose.model('Proposal', proposalSchema);
+
+export { Proposal }; 

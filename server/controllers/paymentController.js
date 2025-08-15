@@ -338,4 +338,124 @@ export const testCheckoutSession = async (req, res) => {
       code: error.code
     });
   }
+};
+
+// Stripe webhook handler
+export const handleStripeWebhook = async (req, res) => {
+  try {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!endpointSecret) {
+      console.error('STRIPE_WEBHOOK_SECRET not configured');
+      return res.status(400).json({ error: 'Webhook secret not configured' });
+    }
+
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } catch (err) {
+      console.error('Webhook signature verification failed:', err.message);
+      return res.status(400).json({ error: 'Webhook signature verification failed' });
+    }
+
+    // Handle the event
+    switch (event.type) {
+      case 'checkout.session.completed':
+        const session = event.data.object;
+        await handleSuccessfulPayment(session);
+        break;
+      case 'payment_intent.succeeded':
+        const paymentIntent = event.data.object;
+        console.log('Payment succeeded:', paymentIntent.id);
+        break;
+      case 'payment_intent.payment_failed':
+        const failedPayment = event.data.object;
+        console.log('Payment failed:', failedPayment.id);
+        break;
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('Webhook handler error:', error);
+    res.status(500).json({ error: 'Webhook handler failed' });
+  }
+};
+
+// Handle successful payment
+const handleSuccessfulPayment = async (session) => {
+  try {
+    const { orderId, gigId, clientId, freelancerId } = session.metadata;
+    
+    if (!orderId) {
+      console.error('No orderId in session metadata');
+      return;
+    }
+
+    // Update order status
+    const order = await Order.findById(orderId);
+    if (order) {
+      order.status = 'paid';
+      order.paidAt = new Date();
+      await order.save();
+      console.log(`Order ${orderId} marked as paid`);
+    }
+
+    // Update proposal status to paid
+    try {
+      const Proposal = (await import('../models/proposal.js')).Proposal;
+      const proposal = await Proposal.findOne({
+        gigId: gigId,
+        clientId: clientId,
+        freelancerId: freelancerId,
+        status: 'completed'
+      });
+
+      if (proposal) {
+        proposal.status = 'paid';
+        proposal.paidAt = new Date();
+        await proposal.save();
+        console.log(`Proposal status updated to paid for order ${orderId}`);
+      }
+    } catch (proposalError) {
+      console.error('Failed to update proposal status:', proposalError);
+    }
+
+    // Send notification to freelancer
+    try {
+      const Notification = (await import('../models/notification.js')).Notification;
+      
+      // Get user IDs for notification
+      const freelancerUser = await User.findOne({ email: freelancerId });
+      const clientUser = await User.findOne({ email: clientId });
+      
+      if (freelancerUser && clientUser) {
+        const notification = new Notification({
+          recipient: freelancerUser._id,
+          sender: clientUser._id,
+          type: 'gig_proposal',
+          title: 'Payment Received!',
+          message: `Payment of $${session.amount_total / 100} has been received for your completed project.`,
+          relatedId: orderId,
+          relatedType: 'order',
+          data: {
+            orderId: orderId,
+            amount: session.amount_total / 100,
+            gigTitle: session.metadata.gigTitle || 'Project'
+          },
+          read: false
+        });
+
+        await notification.save();
+        console.log(`Payment notification sent to freelancer ${freelancerId}`);
+      }
+    } catch (notifyError) {
+      console.error('Failed to send payment notification:', notifyError);
+    }
+
+  } catch (error) {
+    console.error('Error handling successful payment:', error);
+  }
 }; 

@@ -2,6 +2,7 @@ import { Proposal } from '../models/proposal.js';
 import { Gig } from '../models/gig.js';
 import { FreelancerProfile } from '../models/freelancerProfile.js';
 import { User } from '../models/user.js';
+// import { createNotification } from '../services/notificationService.js';
 
 // Submit a proposal - FREELANCER ONLY
 export const submitProposal = async (req, res) => {
@@ -13,6 +14,14 @@ export const submitProposal = async (req, res) => {
     const user = await User.findOne({ email: freelancerId });
     if (!user || user.role !== 'freelancer') {
       return res.status(403).json({ error: 'Only freelancers can submit proposals' });
+    }
+
+    // Validate required fields
+    if (!gigId || !proposal || !bidAmount || !estimatedDuration) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        details: `Required: gigId, proposal, bidAmount, estimatedDuration. Received: ${JSON.stringify({ gigId, proposal, bidAmount, estimatedDuration })}`
+      });
     }
 
     // Check if gig exists
@@ -60,6 +69,26 @@ export const submitProposal = async (req, res) => {
 
     await newProposal.save();
 
+    // Notify client about the new proposal (stored notification)
+    // try {
+    //   const clientUser = await User.findOne({ email: gig.clientId });
+    //   const freelancerUser = await User.findOne({ email: freelancerId });
+    //   if (clientUser && freelancerUser) {
+    //     await createNotification(
+    //       clientUser._id,
+    //       freelancerUser._id,
+    //       'gig_proposal',
+    //       'New Proposal Received',
+    //       `${freelancerUser.name || freelancerUser.email} submitted a proposal (${bidAmount})`,
+    //       newProposal._id,
+    //       'proposal',
+    //       { gigId: gig._id, bidAmount }
+    //     );
+    //   }
+    // } catch (notifyErr) {
+    //   console.error('Failed to create proposal notification:', notifyErr);
+    // }
+
     res.status(201).json({
       message: 'Proposal submitted successfully',
       proposal: newProposal
@@ -67,6 +96,23 @@ export const submitProposal = async (req, res) => {
 
   } catch (error) {
     console.error('Submit proposal error:', error);
+    
+    // Check for validation errors
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map((err) => err.message);
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: validationErrors.join(', ') 
+      });
+    }
+    
+    // Check for duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        error: 'You have already submitted a proposal for this gig' 
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to submit proposal' });
   }
 };
@@ -334,7 +380,7 @@ export const getClientProposals = async (req, res) => {
     const proposalsWithOrders = await Promise.all(
       proposals.map(async (proposal) => {
         const proposalObj = proposal.toObject();
-        if (proposal.status === 'completed') {
+        if (proposal.status === 'completed' && proposal.gigId) {
           const order = await Order.findOne({
             gigId: proposal.gigId.toString(),
             clientId: proposal.clientId,
@@ -353,5 +399,24 @@ export const getClientProposals = async (req, res) => {
   } catch (error) {
     console.error('Get client proposals error:', error);
     res.status(500).json({ error: 'Failed to fetch client proposals' });
+  }
+};
+
+// Get accepted proposals for a freelancer (ongoing gigs)
+export const getFreelancerAcceptedProposals = async (req, res) => {
+  try {
+    const freelancerId = req.user.email;
+    
+    const proposals = await Proposal.find({ 
+      freelancerId, 
+      status: { $in: ['accepted', 'completed', 'paid'] }
+    })
+      .populate('gigId', 'title description amount')
+      .sort({ submittedAt: -1 });
+
+    res.json(proposals);
+  } catch (error) {
+    console.error('Get freelancer accepted proposals error:', error);
+    res.status(500).json({ error: 'Failed to fetch freelancer accepted proposals' });
   }
 }; 

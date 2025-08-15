@@ -29,7 +29,7 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
   const [formData, setFormData] = useState({
     proposal: '',
     bidAmount: '',
-    estimatedDuration: '',
+    estimatedDuration: '1 week',
     milestones: ['']
   });
   const [freelancerProfile, setFreelancerProfile] = useState<FreelancerProfile | null>(null);
@@ -239,7 +239,7 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !formData.proposal || !formData.bidAmount || !formData.estimatedDuration}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
               {loading ? 'Submitting...' : 'Submit Proposal'}
