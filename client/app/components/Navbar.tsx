@@ -24,10 +24,10 @@ export default function Navbar() {
 
   useEffect(() => {
     setMounted(true);
-    fetchUserData();
+    checkAuth();
     // Update unread counts periodically
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('accessToken');
       if (token) {
         updateUnreadCounts();
         const interval = setInterval(updateUnreadCounts, 30000);
@@ -47,43 +47,44 @@ export default function Navbar() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  const fetchUserData = async () => {
-    try {
-      // Only access localStorage on the client side
-      if (typeof window === 'undefined') return;
-      
-      const email = localStorage.getItem('email');
-      const token = localStorage.getItem('token');
-
-      if (!email || !token) {
-        setLoading(false);
-        return;
+  const checkAuth = () => {
+    if (typeof window === 'undefined') return;
+    
+    // Use the new token format with fallback to old format
+    const accessToken = localStorage.getItem('accessToken');
+    const oldToken = localStorage.getItem('token');
+    const email = localStorage.getItem('email');
+    const role = localStorage.getItem('role');
+    const name = localStorage.getItem('name');
+    
+    const token = accessToken || oldToken;
+    
+    if (token && email && role) {
+      // Migrate old token to new format if needed
+      if (oldToken && !accessToken) {
+        localStorage.setItem('accessToken', oldToken);
+        localStorage.removeItem('token');
+        console.log('🔄 Migrated old token format to new format');
       }
-
-      const apiUrl = API_BASE_URL;
-      const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(email)}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-        }
-      } catch (error) {
-      console.error('Failed to fetch user data:', error);
-    } finally {
-      setLoading(false);
+      
+      setUser({ email, role, name });
+    } else {
+      setUser(null);
     }
   };
 
   const handleLogout = () => {
     if (typeof window === 'undefined') return;
     
+    // Clear both old and new token formats
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('token');
     localStorage.removeItem('email');
     localStorage.removeItem('role');
+    localStorage.removeItem('name');
+    localStorage.removeItem('profilePhoto');
+    setUser(null);
     window.location.href = '/';
   };
 

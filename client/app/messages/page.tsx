@@ -72,12 +72,23 @@ function MessagesContent() {
   const checkAuthentication = () => {
     if (typeof window === 'undefined') return;
     
-    const token = localStorage.getItem('token');
+    // Use the new token format with fallback to old format
+    const accessToken = localStorage.getItem('accessToken');
+    const oldToken = localStorage.getItem('token');
     const email = localStorage.getItem('email');
+    
+    const token = accessToken || oldToken;
     
     if (!token || !email) {
       router.push('/login');
       return;
+    }
+    
+    // Migrate old token to new format if needed
+    if (oldToken && !accessToken) {
+      localStorage.setItem('accessToken', oldToken);
+      localStorage.removeItem('token');
+      console.log('🔄 Migrated old token format to new format');
     }
     
     setIsAuthenticated(true);

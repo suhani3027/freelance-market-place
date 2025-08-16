@@ -1,3 +1,5 @@
+import { getToken, getRefreshToken, clearAuthData } from './auth.js';
+
 // API configuration utility
 const getApiBaseUrl = () => {
   // First, check if environment variable is set
@@ -52,9 +54,9 @@ export const apiRequest = async (endpoint, options = {}) => {
   // Attach auth token by default if present and caller didn't supply Authorization
   try {
     if (typeof window !== 'undefined') {
-      const accessToken = localStorage.getItem('accessToken');
-      if (accessToken && !defaultOptions.headers.Authorization) {
-        defaultOptions.headers.Authorization = `Bearer ${accessToken}`;
+      const token = getToken();
+      if (token && !defaultOptions.headers.Authorization) {
+        defaultOptions.headers.Authorization = `Bearer ${token}`;
       }
     }
   } catch {}
@@ -78,7 +80,7 @@ export const apiRequest = async (endpoint, options = {}) => {
       try {
         if (typeof window !== 'undefined') {
           // Try to refresh the token
-          const refreshToken = localStorage.getItem('refreshToken');
+          const refreshToken = getRefreshToken();
           if (refreshToken) {
             console.log('🔄 Attempting to refresh token...');
             const refreshResponse = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
@@ -89,7 +91,10 @@ export const apiRequest = async (endpoint, options = {}) => {
             
             if (refreshResponse.ok) {
               const refreshData = await refreshResponse.json();
-              localStorage.setItem('accessToken', refreshData.accessToken);
+              // Update the token in storage
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('accessToken', refreshData.accessToken);
+              }
               console.log('✅ Token refreshed successfully');
               
               // Retry the original request with new token
@@ -131,52 +136,6 @@ export const apiRequest = async (endpoint, options = {}) => {
 };
 
 // Helper function to make API calls with error handling
-// Utility function to get current access token
-export const getCurrentToken = () => {
-  if (typeof window !== 'undefined') {
-    // Auto-migrate old token format if needed
-    migrateOldToken();
-    return localStorage.getItem('accessToken');
-  }
-  return null;
-};
-
-// Utility function to get current refresh token
-export const getCurrentRefreshToken = () => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('refreshToken');
-  }
-  return null;
-};
-
-// Utility function to clear all auth data
-export const clearAuthData = () => {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('email');
-    localStorage.removeItem('role');
-    localStorage.removeItem('name');
-    localStorage.removeItem('profilePhoto');
-  }
-};
-
-// Utility function to migrate old token format to new format
-export const migrateOldToken = () => {
-  if (typeof window !== 'undefined') {
-    const oldToken = localStorage.getItem('token');
-    if (oldToken) {
-      // If old token exists, treat it as an access token and create a temporary refresh token
-      localStorage.setItem('accessToken', oldToken);
-      localStorage.setItem('refreshToken', oldToken); // Temporary, will be replaced on next login
-      localStorage.removeItem('token');
-      console.log('🔄 Migrated old token format to new format');
-      return true;
-    }
-  }
-  return false;
-};
-
 export const makeApiCall = async (endpoint, options = {}) => {
   try {
     return await apiRequest(endpoint, options);
