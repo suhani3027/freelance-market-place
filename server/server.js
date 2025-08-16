@@ -7,6 +7,19 @@ import { connectDB } from './config/db.js';
 import './loadEnv.js';
 import socketHandler from './socket/index.js';
 
+// Validate critical environment variables
+if (!process.env.JWT_SECRET) {
+  console.error('❌ JWT_SECRET environment variable is not set!');
+  console.error('This is required for authentication to work properly.');
+  process.exit(1);
+}
+
+if (!process.env.MONGODB_URI) {
+  console.error('❌ MONGODB_URI environment variable is not set!');
+  console.error('This is required for database connection.');
+  process.exit(1);
+}
+
 // Load environment variables
 // loadEnv();
 

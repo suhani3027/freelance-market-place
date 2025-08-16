@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   linkedin: String,
   businessDescription: String,
   role: { type: String, enum: ['client', 'freelancer'], default: 'client' },
+  refreshToken: String,
 }, { timestamps: true });
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);

@@ -22,7 +22,8 @@ export default function FreelancerLogin() {
       if (!res.ok) {
         setError(data.message || data.error || 'Login failed.');
       } else {
-        localStorage.setItem('token', data.token);
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('refreshToken', data.refreshToken);
         localStorage.setItem('role', data.role || 'freelancer');
         localStorage.setItem('email', data.email || form.email);
         localStorage.setItem('name', (data.user?.name) || data.name || form.email.split('@')[0]);
@@ -32,7 +33,7 @@ export default function FreelancerLogin() {
         try {
           const profileRes = await fetch(`${API_BASE_URL}/api/freelancer-profile/me`, {
             headers: {
-              'Authorization': `Bearer ${data.token}`
+              'Authorization': `Bearer ${data.accessToken}`
             }
           });
           if (profileRes.ok) {

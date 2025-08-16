@@ -26,7 +26,8 @@ export default function ClientLogin() {
       
       const data = await res.json();
       if (res.ok) {
-        localStorage.setItem("token", data.token);
+        localStorage.setItem("accessToken", data.accessToken);
+        localStorage.setItem("refreshToken", data.refreshToken);
         localStorage.setItem("role", data.role || "client");
         localStorage.setItem("email", data.email || form.email);
         localStorage.setItem("name", data.name || data.user?.name || form.email.split("@")[0]);

@@ -52,9 +52,9 @@ export const apiRequest = async (endpoint, options = {}) => {
   // Attach auth token by default if present and caller didn't supply Authorization
   try {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      if (token && !defaultOptions.headers.Authorization) {
-        defaultOptions.headers.Authorization = `Bearer ${token}`;
+      const accessToken = localStorage.getItem('accessToken');
+      if (accessToken && !defaultOptions.headers.Authorization) {
+        defaultOptions.headers.Authorization = `Bearer ${accessToken}`;
       }
     }
   } catch {}
@@ -77,13 +77,52 @@ export const apiRequest = async (endpoint, options = {}) => {
     if (response.status === 401 && (errorData.error === 'Token expired' || /expired/i.test(errorData.message || ''))) {
       try {
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('token');
-          localStorage.removeItem('email');
-          localStorage.removeItem('role');
-          // Redirect to login
+          // Try to refresh the token
+          const refreshToken = localStorage.getItem('refreshToken');
+          if (refreshToken) {
+            console.log('🔄 Attempting to refresh token...');
+            const refreshResponse = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refreshToken })
+            });
+            
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+              localStorage.setItem('accessToken', refreshData.accessToken);
+              console.log('✅ Token refreshed successfully');
+              
+              // Retry the original request with new token
+              const retryResponse = await fetch(url, {
+                ...defaultOptions,
+                ...options,
+                headers: {
+                  ...mergedHeaders,
+                  Authorization: `Bearer ${refreshData.accessToken}`
+                }
+              });
+              
+              if (retryResponse.ok) {
+                return retryResponse.json();
+              }
+            } else {
+              console.log('❌ Token refresh failed:', refreshResponse.status);
+            }
+          }
+          
+          // If refresh failed, clear storage and redirect to login
+          console.log('🔄 Clearing auth data and redirecting to login...');
+          clearAuthData();
           window.location.href = '/login';
         }
-      } catch {}
+      } catch (refreshError) {
+        console.error('Token refresh failed:', refreshError);
+        // Clear storage and redirect to login
+        try {
+          clearAuthData();
+          window.location.href = '/login';
+        } catch {}
+      }
     }
     throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
   }
@@ -92,6 +131,52 @@ export const apiRequest = async (endpoint, options = {}) => {
 };
 
 // Helper function to make API calls with error handling
+// Utility function to get current access token
+export const getCurrentToken = () => {
+  if (typeof window !== 'undefined') {
+    // Auto-migrate old token format if needed
+    migrateOldToken();
+    return localStorage.getItem('accessToken');
+  }
+  return null;
+};
+
+// Utility function to get current refresh token
+export const getCurrentRefreshToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('refreshToken');
+  }
+  return null;
+};
+
+// Utility function to clear all auth data
+export const clearAuthData = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('email');
+    localStorage.removeItem('role');
+    localStorage.removeItem('name');
+    localStorage.removeItem('profilePhoto');
+  }
+};
+
+// Utility function to migrate old token format to new format
+export const migrateOldToken = () => {
+  if (typeof window !== 'undefined') {
+    const oldToken = localStorage.getItem('token');
+    if (oldToken) {
+      // If old token exists, treat it as an access token and create a temporary refresh token
+      localStorage.setItem('accessToken', oldToken);
+      localStorage.setItem('refreshToken', oldToken); // Temporary, will be replaced on next login
+      localStorage.removeItem('token');
+      console.log('🔄 Migrated old token format to new format');
+      return true;
+    }
+  }
+  return false;
+};
+
 export const makeApiCall = async (endpoint, options = {}) => {
   try {
     return await apiRequest(endpoint, options);

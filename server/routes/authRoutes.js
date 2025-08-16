@@ -106,14 +106,88 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ message: "Incorrect password" });
   }
 
-  const token = jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+  // Create access token (short-lived)
+  const accessToken = jwt.sign(
+    { id: user._id, email: user.email, role: user.role }, 
+    JWT_SECRET, 
+    { expiresIn: '1h' } // 1 hour for access token
+  );
+  
+  // Create refresh token (long-lived)
+  const refreshToken = jwt.sign(
+    { id: user._id, email: user.email, role: user.role }, 
+    JWT_SECRET, 
+    { expiresIn: '30d' } // 30 days for refresh token
+  );
+  
+  // Store refresh token in user document
+  user.refreshToken = refreshToken;
+  await user.save();
 
   return res.status(200).json({ 
-    token,
+    accessToken,
+    refreshToken,
     role: user.role,
     name: user.name,
     email: user.email
   });
+});
+
+// Refresh token handler
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ message: "Refresh token is required" });
+    }
+    
+    // Verify refresh token
+    const decoded = jwt.verify(refreshToken, JWT_SECRET);
+    
+    // Find user and check if refresh token matches
+    const user = await User.findById(decoded.id);
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+    
+    // Generate new access token
+    const newAccessToken = jwt.sign(
+      { id: user._id, email: user.email, role: user.role }, 
+      JWT_SECRET, 
+      { expiresIn: '1h' }
+    );
+    
+    res.json({ 
+      accessToken: newAccessToken,
+      user: { id: user._id, name: user.name, role: user.role, email: user.email } 
+    });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: "Refresh token expired" });
+    }
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Logout handler
+router.post('/logout', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (refreshToken) {
+      // Find user and remove refresh token
+      const user = await User.findOne({ refreshToken });
+      if (user) {
+        user.refreshToken = undefined;
+        await user.save();
+      }
+    }
+    
+    res.json({ message: "Logged out successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
 // Get user info by email

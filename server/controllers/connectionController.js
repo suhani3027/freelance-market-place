@@ -11,6 +11,12 @@ import {
 export const sendConnectionRequest = async (req, res) => {
   try {
     const { recipientEmail, message } = req.body;
+    
+    // Validate that user is authenticated
+    if (!req.user || !req.user.email) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+    
     const requesterEmail = req.user.email;
 
     if (requesterEmail === recipientEmail) {
@@ -45,6 +51,12 @@ export const sendConnectionRequest = async (req, res) => {
       return res.status(404).json({ message: 'Requester not found' });
     }
 
+    // Validate all required fields before creating connection
+    if (!requester._id || !requester.email || !requester.name || 
+        !recipient._id || !recipient.email || !recipient.name) {
+      return res.status(400).json({ message: 'Invalid user data' });
+    }
+
     // Create new connection request
     const connection = new Connection({
       requesterId: requester._id.toString(),
@@ -77,6 +89,12 @@ export const sendConnectionRequest = async (req, res) => {
     });
   } catch (error) {
     console.error('Send connection request error:', error);
+    
+    // Handle duplicate key error specifically
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Connection request already exists' });
+    }
+    
     res.status(500).json({ message: 'Failed to send connection request' });
   }
 };

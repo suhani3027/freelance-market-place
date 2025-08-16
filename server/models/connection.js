@@ -20,8 +20,8 @@ const connectionSchema = new mongoose.Schema({
   isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 
-// Compound index to prevent duplicate connections
-connectionSchema.index({ requesterId: 1, recipientId: 1 }, { unique: true });
+// Compound index to prevent duplicate connections - using the correct field names
+connectionSchema.index({ requesterEmail: 1, recipientEmail: 1 }, { unique: true });
 
 const Connection = mongoose.models.Connection || mongoose.model("Connection", connectionSchema);
 
