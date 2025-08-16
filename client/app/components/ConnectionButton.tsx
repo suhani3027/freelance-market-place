@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../../lib/api';
+import { getToken, getUser } from '../../lib/auth';
 
 interface ConnectionButtonProps {
   targetEmail: string;
@@ -18,8 +19,19 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
 
   const checkConnectionStatus = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      const token = getToken();
+      const currentUser = getUser();
+      
+      if (!token || !currentUser) {
+        setConnectionStatus('none');
+        return;
+      }
+
+      // Don't check connection status with yourself
+      if (currentUser.email === targetEmail) {
+        setConnectionStatus('none');
+        return;
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/connections/status/${encodeURIComponent(targetEmail)}`, {
         headers: {
@@ -33,8 +45,7 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
           setConnectionStatus('none');
         } else if (data.status === 'pending') {
           // Check if we're the requester or recipient
-          const myEmail = localStorage.getItem('email');
-          if (data.connection?.requesterEmail === myEmail) {
+          if (data.connection?.requesterEmail === currentUser.email) {
             setConnectionStatus('pending_sent');
           } else {
             setConnectionStatus('pending_received');
@@ -44,6 +55,9 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
         } else if (data.status === 'rejected') {
           setConnectionStatus('rejected');
         }
+      } else {
+        console.error('Failed to check connection status:', res.status);
+        setConnectionStatus('none');
       }
     } catch (error) {
       console.error('Error checking connection status:', error);
@@ -56,9 +70,17 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
     
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
+      const token = getToken();
+      const currentUser = getUser();
+      
+      if (!token || !currentUser) {
         alert('Please login to send connection requests');
+        return;
+      }
+
+      // Don't allow connecting with yourself
+      if (currentUser.email === targetEmail) {
+        alert('You cannot connect with yourself');
         return;
       }
 
@@ -79,7 +101,12 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
         alert('Connection request sent successfully!');
       } else {
         const data = await res.json();
-        alert(data.message || 'Failed to send connection request');
+        if (res.status === 400 && data.message?.includes('already exists')) {
+          // If connection already exists, check the status again
+          await checkConnectionStatus();
+        } else {
+          alert(data.message || 'Failed to send connection request');
+        }
       }
     } catch (error) {
       console.error('Error sending connection request:', error);
@@ -94,7 +121,7 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
     
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (!token) return;
 
       // Get the connection ID from the pending request
@@ -137,7 +164,7 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
     
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (!token) return;
 
       // Get the connection ID from the pending request

@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { API_BASE_URL } from '../../lib/api';
+import { getToken, getUser } from '../../lib/auth';
 
 interface MessageButtonProps {
   recipientEmail: string;
@@ -19,6 +21,50 @@ const MessageButton = ({
   showIcon = true 
 }: MessageButtonProps) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    checkConnectionStatus();
+  }, [recipientEmail]);
+
+  const checkConnectionStatus = async () => {
+    try {
+      const token = getToken();
+      const currentUser = getUser();
+      
+      if (!token || !currentUser) {
+        setIsConnected(false);
+        setIsLoading(false);
+        return;
+      }
+
+      // Don't show message button for yourself
+      if (currentUser.email === recipientEmail) {
+        setIsConnected(false);
+        setIsLoading(false);
+        return;
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/connections/status/${encodeURIComponent(recipientEmail)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setIsConnected(data.status === 'accepted');
+      } else {
+        setIsConnected(false);
+      }
+    } catch (error) {
+      console.error('Error checking connection status for message button:', error);
+      setIsConnected(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const baseClasses = 'inline-flex items-center justify-center font-medium rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 transform hover:scale-105 active:scale-95';
   
@@ -39,6 +85,16 @@ const MessageButton = ({
     md: 'w-4 h-4',
     lg: 'w-5 h-5'
   };
+
+  // Don't show anything while loading
+  if (isLoading) {
+    return null;
+  }
+
+  // Only show message button if users are connected
+  if (!isConnected) {
+    return null;
+  }
 
   return (
     <Link
