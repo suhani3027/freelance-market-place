@@ -1,5 +1,9 @@
-"use client";
+'use client';
+
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../lib/auth.js';
 import StarRating from '../../../components/StarRating';
 import ReviewList from '../../../components/ReviewList';
 
@@ -26,26 +30,53 @@ interface ReviewStats {
   };
 }
 
-export default function FeedbackDashboard() {
+export default function FeedbackPage() {
+  const router = useRouter();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [stats, setStats] = useState<ReviewStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentUserEmail, setCurrentUserEmail] = useState('');
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
-    const userEmail = localStorage.getItem('email');
-    if (userEmail) {
-      setCurrentUserEmail(userEmail);
-      loadReviews(userEmail);
-    }
+    checkAuthentication();
   }, []);
+
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const token = getToken();
+      const userData = getUser();
+      
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      }
+      
+      setUser(userData);
+      loadReviews(userData.email);
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
+    }
+  };
 
   const loadReviews = async (userEmail: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/reviews/profile/${encodeURIComponent(userEmail)}`, {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for loading reviews');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/reviews/profile/${encodeURIComponent(userEmail)}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
       
@@ -53,6 +84,13 @@ export default function FeedbackDashboard() {
         const data = await response.json();
         setReviews(data.reviews);
         setStats(data.stats);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        console.error('Failed to load reviews:', response.status);
       }
     } catch (error) {
       console.error('Error loading reviews:', error);
@@ -63,12 +101,32 @@ export default function FeedbackDashboard() {
 
   const handleMarkHelpful = async (reviewId: string) => {
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/reviews/${reviewId}/helpful`, {
-        method: 'PUT'
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for marking review helpful');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/reviews/${reviewId}/helpful`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
-      // Refresh reviews to show updated helpful count
-      if (currentUserEmail) {
-        loadReviews(currentUserEmail);
+
+      if (response.ok) {
+        // Refresh reviews to show updated helpful count
+        if (user?.email) {
+          loadReviews(user.email);
+        }
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        console.error('Failed to mark review helpful:', response.status);
       }
     } catch (error) {
       console.error('Error marking review helpful:', error);

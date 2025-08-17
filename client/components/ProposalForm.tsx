@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../lib/api';
+import { getToken, isValidTokenFormat, clearAuthData } from '../lib/auth';
+import { useRouter } from 'next/navigation';
 
 interface ProposalFormProps {
   gigId: string;
@@ -35,6 +37,10 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
   const [freelancerProfile, setFreelancerProfile] = useState<FreelancerProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const router = useRouter();
 
   useEffect(() => {
     fetchFreelancerProfile();
@@ -42,8 +48,8 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
 
   const fetchFreelancerProfile = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
+      const token = getToken();
+      if (!token || !isValidTokenFormat(token)) {
         setError('Please log in to submit a proposal');
         return;
       }
@@ -57,6 +63,11 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
       if (response.ok) {
         const profile = await response.json();
         setFreelancerProfile(profile);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
         setError('Failed to load freelancer profile');
       }
@@ -67,24 +78,65 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSubmitting(true);
     setError('');
+    setSuccess('');
 
     try {
-      const proposalData = {
-        gigId,
-        proposal: formData.proposal,
-        bidAmount: parseFloat(formData.bidAmount),
-        estimatedDuration: formData.estimatedDuration,
-        milestones: formData.milestones.filter(milestone => milestone.trim() !== '')
-      };
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        setError('Authentication required. Please log in again.');
+        return;
+      }
 
-      await onSubmit(proposalData);
-      onClose();
+      const response = await fetch(`${API_BASE_URL}/api/proposals`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          gigId: gigId,
+          proposal: formData.proposal,
+          bidAmount: Number(formData.bidAmount),
+          estimatedDuration: formData.estimatedDuration,
+          milestones: formData.milestones.filter(milestone => milestone.trim() !== '')
+        })
+      });
+
+      if (response.ok) {
+        setSuccess('Proposal submitted successfully!');
+        setFormData({
+          proposal: '',
+          bidAmount: '',
+          estimatedDuration: '1 week',
+          milestones: ['']
+        });
+        // Reset form
+        if (onSubmit) {
+          onSubmit({
+            gigId: gigId,
+            proposal: formData.proposal,
+            bidAmount: Number(formData.bidAmount),
+            estimatedDuration: formData.estimatedDuration,
+            milestones: formData.milestones.filter(milestone => milestone.trim() !== '')
+          });
+        }
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to submit proposal');
+      }
     } catch (error) {
-      setError('Failed to submit proposal');
+      console.error('Error submitting proposal:', error);
+      setError('Failed to submit proposal. Please try again.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -141,6 +193,11 @@ const ProposalForm: React.FC<ProposalFormProps> = ({
         {error && (
           <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
             {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 p-3 bg-green-100 text-green-700 rounded">
+            {success}
           </div>
         )}
 

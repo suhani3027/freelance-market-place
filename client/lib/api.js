@@ -1,4 +1,4 @@
-import { getToken, getRefreshToken, clearAuthData } from './auth.js';
+import { getToken, getRefreshToken, clearAuthData, isValidTokenFormat, isTokenExpired, cleanupExpiredTokens } from './auth.js';
 
 // API configuration utility
 const getApiBaseUrl = () => {
@@ -40,8 +40,14 @@ export const getSocketUrl = () => {
   return 'http://localhost:5000';
 };
 
+// Enhanced API request with better token validation
 export const apiRequest = async (endpoint, options = {}) => {
   const url = `${API_BASE_URL}${endpoint}`;
+  
+  // Clean up expired tokens first
+  if (typeof window !== 'undefined') {
+    cleanupExpiredTokens();
+  }
   
   // Build default headers and preserve caller-specified headers via deep-merge
   const defaultOptions = {
@@ -55,11 +61,28 @@ export const apiRequest = async (endpoint, options = {}) => {
   try {
     if (typeof window !== 'undefined') {
       const token = getToken();
-      if (token && !defaultOptions.headers.Authorization) {
+      
+      // Only add token if it's valid and not expired
+      if (token && isValidTokenFormat(token) && !isTokenExpired(token) && !defaultOptions.headers.Authorization) {
         defaultOptions.headers.Authorization = `Bearer ${token}`;
+      } else if (token && (!isValidTokenFormat(token) || isTokenExpired(token))) {
+        // Token is invalid or expired, clear it
+        console.warn('Invalid or expired token detected, clearing auth data');
+        clearAuthData();
+        
+        // Redirect to login if we're not already there
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/login/clients' && window.location.pathname !== '/login/freelancer') {
+          window.location.href = '/login';
+          throw new Error('Authentication required');
+        }
       }
     }
-  } catch {}
+  } catch (error) {
+    console.error('Error handling authentication:', error);
+    if (error.message === 'Authentication required') {
+      throw error;
+    }
+  }
 
   // Deep-merge headers so we don't lose Authorization when caller passes custom headers
   const mergedHeaders = {
@@ -75,13 +98,19 @@ export const apiRequest = async (endpoint, options = {}) => {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    // Handle token expiry globally
-    if (response.status === 401 && (errorData.error === 'Token expired' || /expired/i.test(errorData.message || ''))) {
-      try {
-        if (typeof window !== 'undefined') {
-          // Try to refresh the token
-          const refreshToken = getRefreshToken();
-          if (refreshToken) {
+    
+    // Handle authentication errors globally
+    if (response.status === 401) {
+      console.warn('Authentication failed:', errorData.error || errorData.message);
+      
+      // Clear invalid auth data
+      if (typeof window !== 'undefined') {
+        clearAuthData();
+        
+        // Try to refresh token if we have a refresh token
+        const refreshToken = getRefreshToken();
+        if (refreshToken && isValidTokenFormat(refreshToken)) {
+          try {
             console.log('🔄 Attempting to refresh token...');
             const refreshResponse = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
               method: 'POST',
@@ -91,44 +120,52 @@ export const apiRequest = async (endpoint, options = {}) => {
             
             if (refreshResponse.ok) {
               const refreshData = await refreshResponse.json();
-              // Update the token in storage
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('accessToken', refreshData.accessToken);
-              }
-              console.log('✅ Token refreshed successfully');
               
-              // Retry the original request with new token
-              const retryResponse = await fetch(url, {
-                ...defaultOptions,
-                ...options,
-                headers: {
-                  ...mergedHeaders,
-                  Authorization: `Bearer ${refreshData.accessToken}`
+              // Validate the new token before storing
+              if (refreshData.accessToken && isValidTokenFormat(refreshData.accessToken)) {
+                // Update the token in storage
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('accessToken', refreshData.accessToken);
                 }
-              });
-              
-              if (retryResponse.ok) {
-                return retryResponse.json();
+                console.log('✅ Token refreshed successfully');
+                
+                // Retry the original request with new token
+                const retryResponse = await fetch(url, {
+                  ...defaultOptions,
+                  ...options,
+                  headers: {
+                    ...mergedHeaders,
+                    Authorization: `Bearer ${refreshData.accessToken}`
+                  }
+                });
+                
+                if (retryResponse.ok) {
+                  return retryResponse.json();
+                } else {
+                  throw new Error(`Retry failed: ${retryResponse.status}`);
+                }
+              } else {
+                console.error('❌ Invalid token received from refresh endpoint');
+                throw new Error('Invalid token received from refresh endpoint');
               }
             } else {
               console.log('❌ Token refresh failed:', refreshResponse.status);
+              throw new Error('Token refresh failed');
             }
+          } catch (refreshError) {
+            console.error('Token refresh failed:', refreshError);
+            throw new Error('Token refresh failed');
           }
-          
-          // If refresh failed, clear storage and redirect to login
-          console.log('🔄 Clearing auth data and redirecting to login...');
-          clearAuthData();
+        }
+        
+        // If no refresh token or refresh failed, redirect to login
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/login/clients' && window.location.pathname !== '/login/freelancer') {
+          console.log('🔄 Redirecting to login...');
           window.location.href = '/login';
         }
-      } catch (refreshError) {
-        console.error('Token refresh failed:', refreshError);
-        // Clear storage and redirect to login
-        try {
-          clearAuthData();
-          window.location.href = '/login';
-        } catch {}
       }
     }
+    
     throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
   }
 
@@ -143,4 +180,16 @@ export const makeApiCall = async (endpoint, options = {}) => {
     console.error('API call failed:', error);
     throw error;
   }
+};
+
+// Helper function to check if user is authenticated before making API calls
+export const authenticatedApiCall = async (endpoint, options = {}) => {
+  if (typeof window !== 'undefined') {
+    const token = getToken();
+    if (!token || !isValidTokenFormat(token) || isTokenExpired(token)) {
+      throw new Error('Authentication required');
+    }
+  }
+  
+  return makeApiCall(endpoint, options);
 };

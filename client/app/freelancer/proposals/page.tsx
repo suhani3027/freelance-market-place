@@ -1,92 +1,199 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../lib/auth.js';
 
-interface Proposal {
-  _id: string;
-  gigId: string;
-  clientId: string;
-  freelancerId: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'paid';
-  proposal: string;
-  bidAmount: number;
-  estimatedDuration: string;
-  submittedAt: string;
-  completedAt?: string;
-  freelancerProfile: {
-    name: string;
-    title: string;
-    overview: string;
-    skills: string[];
-    hourlyRate: number;
-    experienceLevel: string;
-    location: string;
-    profilePhoto: string;
-  };
-  gig?: {
-    title: string;
-    description: string;
-    amount: number;
-  };
-  orderId?: string;
-}
-
-export default function FreelancerOngoingGigs() {
-  const [ongoingGigs, setOngoingGigs] = useState<Proposal[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [completingGigId, setCompletingGigId] = useState<string | null>(null);
+export default function FreelancerProposalsPage() {
   const router = useRouter();
-
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const [proposals, setProposals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [error, setError] = useState('');
+  const [completingGigId, setCompletingGigId] = useState(null);
 
   useEffect(() => {
-    fetchOngoingGigs();
+    checkAuthentication();
   }, []);
 
-  const fetchOngoingGigs = async () => {
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
-      // Fetch only accepted proposals (ongoing gigs)
-      const response = await fetch(`${apiUrl}/api/proposals/freelancer/accepted`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setOngoingGigs(data);
+      const token = getToken();
+      const userData = getUser();
+      
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       }
+      
+      // Check if user is a freelancer
+      if (userData.role !== 'freelancer') {
+        alert('Only freelancers can view their proposals');
+        router.push('/dashboard');
+        return;
+      }
+      
+      setUser(userData);
+      fetchProposals();
     } catch (error) {
-      console.error('Error fetching ongoing gigs:', error);
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
     } finally {
       setLoading(false);
     }
   };
 
-  const markAsComplete = async (proposalId: string) => {
-    setCompletingGigId(proposalId);
+  const fetchProposals = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/proposals/${proposalId}/complete`, {
-        method: 'PUT',
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching proposals');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/proposals/freelancer/accepted`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${token}`
         }
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to mark as complete');
+
+      if (response.ok) {
+        const data = await response.json();
+        setProposals(data);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        console.error('Failed to fetch proposals:', response.status);
+        setError('Failed to load proposals');
       }
-      await fetchOngoingGigs();
-      alert('Gig marked as complete! Client will now see the payment option.');
-    } catch (e) {
-      alert((e as Error).message);
+    } catch (error) {
+      console.error('Failed to fetch proposals:', error);
+      setError('Failed to load proposals');
+    }
+  };
+
+  const withdrawProposal = async (proposalId) => {
+    if (!confirm('Are you sure you want to withdraw this proposal?')) return;
+
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for withdrawing proposal');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/proposals/${proposalId}/withdraw`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        // Update local state
+        setProposals(prev => 
+          prev.map(proposal => 
+            proposal._id === proposalId 
+              ? { ...proposal, status: 'withdrawn' }
+              : proposal
+          )
+        );
+        alert('Proposal withdrawn successfully!');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        alert('Failed to withdraw proposal');
+      }
+    } catch (error) {
+      console.error('Error withdrawing proposal:', error);
+      alert('Failed to withdraw proposal');
+    }
+  };
+
+  const markAsComplete = async (proposalId) => {
+    if (!confirm('Are you sure you want to mark this gig as complete?')) return;
+
+    setCompletingGigId(proposalId);
+
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for marking complete');
+        return;
+      }
+
+      // Find the proposal to get the gigId
+      const proposal = proposals.find(p => p._id === proposalId);
+      if (!proposal || !proposal.gigId) {
+        alert('Proposal or gig information not found');
+        return;
+      }
+
+      // Get the gig ID - the gigId should be a populated object with _id
+      let gigId;
+      if (typeof proposal.gigId === 'object' && proposal.gigId._id) {
+        // If it's a populated gig object, get the _id
+        gigId = proposal.gigId._id;
+      } else if (typeof proposal.gigId === 'object') {
+        // If it's an ObjectId object, convert to string
+        gigId = proposal.gigId.toString();
+      } else if (typeof proposal.gigId === 'string') {
+        // If it's already a string, use it as is
+        gigId = proposal.gigId;
+      } else {
+        console.error('Unexpected gigId format:', proposal.gigId);
+        alert('Invalid gig data format');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/gigs/${gigId}/complete`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setProposals(prev => 
+          prev.map(proposal => 
+            proposal._id === proposalId 
+              ? { ...proposal, status: 'completed', completedAt: new Date().toISOString() }
+              : proposal
+          )
+        );
+        alert('Gig marked as complete successfully!');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        alert(errorData.error || 'Failed to mark gig as complete');
+      }
+    } catch (error) {
+      console.error('Error marking gig as complete:', error);
+      alert('Failed to mark gig as complete');
     } finally {
       setCompletingGigId(null);
     }
   };
-
 
 
   const getStatusColor = (status: string) => {
@@ -114,7 +221,7 @@ export default function FreelancerOngoingGigs() {
           <p className="text-gray-600">Manage your accepted gigs and mark them as complete when finished</p>
         </div>
 
-        {ongoingGigs.length === 0 ? (
+        {proposals.length === 0 ? (
           <div className="text-center py-12">
             <div className="text-gray-500 mb-4">
               <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -122,7 +229,7 @@ export default function FreelancerOngoingGigs() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No ongoing gigs</h3>
-            <p className="text-gray-600 mb-6">You don't have any accepted gigs yet. Browse available gigs and submit proposals!</p>
+            <p className="text-gray-600 mb-6">You don&apos;t have any accepted gigs yet. Browse available gigs and submit proposals!</p>
             <button
               onClick={() => router.push('/explore')}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
@@ -132,12 +239,12 @@ export default function FreelancerOngoingGigs() {
           </div>
         ) : (
           <div className="space-y-6">
-            {ongoingGigs.map((gig) => (
+            {proposals.map((gig) => (
               <div key={gig._id} className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                      {gig.gig?.title || 'Project'}
+                      {gig.gigId?.title || 'Project'}
                     </h3>
                     <div className="flex items-center gap-4 text-sm text-gray-600 mb-2">
                       <span>Client: {gig.clientId}</span>
@@ -186,10 +293,10 @@ export default function FreelancerOngoingGigs() {
                   <p className="text-gray-700 text-sm leading-relaxed">{gig.proposal}</p>
                 </div>
 
-                {gig.gig && (
+                {gig.gigId && (
                   <div className="border-t border-gray-200 pt-4 mt-4">
                     <h4 className="font-medium text-gray-900 mb-2">Project Details</h4>
-                    <p className="text-gray-700 text-sm">{gig.gig.description}</p>
+                    <p className="text-gray-700 text-sm">{gig.gigId.description}</p>
                   </div>
                 )}
               </div>

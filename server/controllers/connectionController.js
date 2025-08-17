@@ -51,14 +51,30 @@ export const sendConnectionRequest = async (req, res) => {
       return res.status(404).json({ message: 'Requester not found' });
     }
 
+    // Check if requester has required profile data
+    if (!requester.name) {
+      return res.status(400).json({ 
+        message: 'Please complete your profile by adding your name before sending connection requests' 
+      });
+    }
+
+    // Check if recipient has required profile data
+    if (!recipient.name) {
+      return res.status(400).json({ 
+        message: 'Cannot connect with users who have incomplete profiles' 
+      });
+    }
+
     // Validate all required fields before creating connection
     if (!requester._id || !requester.email || !requester.name || 
         !recipient._id || !recipient.email || !recipient.name) {
-      return res.status(400).json({ message: 'Invalid user data' });
+      return res.status(400).json({ 
+        message: 'Invalid user data. Please ensure both users have complete profiles.' 
+      });
     }
 
     // Create new connection request
-    const connection = new Connection({
+    const connectionData = {
       requesterId: requester._id.toString(),
       requesterEmail: requester.email,
       requesterName: requester.name,
@@ -67,9 +83,18 @@ export const sendConnectionRequest = async (req, res) => {
       recipientName: recipient.name,
       message: message || '',
       status: 'pending'
-    });
+    };
 
+    // Only log successful connection creation
+    const connection = new Connection(connectionData);
     await connection.save();
+
+    console.log('🔗 Connection created successfully:', {
+      id: connection._id,
+      from: connectionData.requesterEmail,
+      to: connectionData.recipientEmail,
+      status: connectionData.status
+    });
 
     // Create notification for recipient
     try {
@@ -88,11 +113,15 @@ export const sendConnectionRequest = async (req, res) => {
       connection 
     });
   } catch (error) {
-    console.error('Send connection request error:', error);
-    
-    // Handle duplicate key error specifically
+    // Only log critical errors, not validation issues
     if (error.code === 11000) {
+      // Duplicate key error - this is expected behavior
       return res.status(400).json({ message: 'Connection request already exists' });
+    }
+    
+    // Log only unexpected errors
+    if (error.name !== 'ValidationError' && !error.message?.includes('required fields')) {
+      console.error('❌ Unexpected connection error:', error.message);
     }
     
     res.status(500).json({ message: 'Failed to send connection request' });

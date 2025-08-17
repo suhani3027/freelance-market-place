@@ -5,6 +5,8 @@ import { API_BASE_URL, makeApiCall } from '../../../../lib/api';
 import ConnectionButton from '../../../components/ConnectionButton';
 import MessageButton from '../../../components/MessageButton';
 import ReviewForm from '../../../../components/ReviewForm';
+import { getToken, isValidTokenFormat, clearAuthData } from '../../../../lib/auth';
+import { useRouter } from 'next/navigation';
 
 interface FreelancerProfileContentProps {
   email: string;
@@ -17,6 +19,7 @@ export default function FreelancerProfileContent({ email }: FreelancerProfileCon
   const [error, setError] = useState('');
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -50,11 +53,18 @@ export default function FreelancerProfileContent({ email }: FreelancerProfileCon
 
   const handleReviewSubmit = async (reviewData: { rating: number; comment: string; isAnonymous: boolean }) => {
     try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        alert('Authentication required. Please log in again.');
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           reviewType: 'profile',
@@ -72,11 +82,20 @@ export default function FreelancerProfileContent({ email }: FreelancerProfileCon
         setShowReviewForm(false);
         // Refresh profile to show new review
         // Re-fetch the profile data
-        const profileRes = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(email)}`);
+        const profileRes = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(email)}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           setProfile(profileData);
         }
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
         const errorData = await response.json();
         alert(`Failed to submit review: ${errorData.message || errorData.error}`);

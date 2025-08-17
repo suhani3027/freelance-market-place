@@ -1,50 +1,65 @@
 "use client";
 
 import { useState } from 'react';
-import { API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, isValidTokenFormat, clearAuthData } from '../../lib/auth.js';
+import { useRouter } from 'next/navigation';
 
 interface PaymentButtonProps {
   gigId: string;
   amount: number;
   title: string;
-  onSuccess?: () => void;
+  onSuccess?: (data: any) => void;
   onError?: (error: string) => void;
 }
 
 export default function PaymentButton({ gigId, amount, title, onSuccess, onError }: PaymentButtonProps) {
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   const handlePayment = async () => {
-    setLoading(true);
     try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        alert('Authentication required. Please log in again.');
+        return;
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/payments/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          gigId,
-          amount,
-          title
+          gigId: gigId,
+          clientId: localStorage.getItem('email') || 'unknown',
+          amount: amount,
+          gigTitle: title
         })
       });
 
       if (response.ok) {
         const data = await response.json();
+        // Redirect to Stripe checkout
         if (data.url) {
           window.location.href = data.url;
         } else {
-          onError?.('Failed to create checkout session');
+          alert('Payment session created but no checkout URL received');
         }
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
         const errorData = await response.json();
-        onError?.(errorData.message || 'Payment failed');
+        alert(errorData.message || 'Payment failed');
       }
     } catch (error) {
-      onError?.('Payment failed. Please try again.');
-    } finally {
-      setLoading(false);
+      console.error('Payment error:', error);
+      alert('Payment failed. Please try again.');
     }
   };
 

@@ -1,32 +1,30 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../lib/auth.js';
+import ReviewForm from '../../components/ReviewForm';
+import ReviewList from '../../components/ReviewList';
+import StarRating from '../../components/StarRating';
 
 interface Review {
   _id: string;
-  reviewType: 'gig' | 'profile';
-  reviewerId: string;
   reviewerName: string;
-  reviewerRole: 'client' | 'freelancer';
-  targetId: string;
-  targetName: string;
-  targetRole: 'client' | 'freelancer';
   rating: number;
   comment: string;
   title?: string;
+  createdAt: string;
   isAnonymous: boolean;
   helpfulCount: number;
   helpfulUsers: string[];
-  gigTitle?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 interface ReviewSectionProps {
   type: 'gig' | 'profile';
   targetId: string;
   targetName: string;
-  targetRole: 'client' | 'freelancer';
+  targetRole: string;
   gigId?: string;
   orderId?: string;
   profileId?: string;
@@ -53,14 +51,9 @@ export default function ReviewSection({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [sortBy, setSortBy] = useState('date');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const router = useRouter();
-
-  const [reviewData, setReviewData] = useState({
-    rating: 5,
-    title: '',
-    comment: '',
-    isAnonymous: false
-  });
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
@@ -118,355 +111,261 @@ export default function ReviewSection({
     }
   };
 
-  const handleSubmitReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUserEmail) {
-      alert('Please log in to leave a review');
-      return;
-    }
-
-    if (!reviewData.comment.trim()) {
-      alert('Please provide a comment');
-      return;
-    }
-
-    // Validate required fields based on review type
-    if (type === 'gig' && (!gigId || !targetId)) {
-      alert('Missing required information for gig review');
-      return;
-    }
-
-    if (type === 'profile' && (!targetId || !profileId)) {
-      alert('Missing required information for profile review');
-      return;
-    }
-
+  const handleSubmitReview = async (reviewData: { rating: number; comment: string; isAnonymous: boolean }) => {
     setSubmitting(true);
+    setError('');
+    setSuccess('');
+
     try {
-      const reviewPayload = {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        setError('Authentication required. Please log in again.');
+        return;
+      }
+
+      const requestBody: any = {
         reviewType: type,
-        targetId,
+        targetId: targetId,
         rating: reviewData.rating,
-        comment: reviewData.comment.trim(),
-        title: reviewData.title.trim(),
-        isAnonymous: reviewData.isAnonymous,
-        ...(type === 'gig' && { gigId, ...(orderId && { orderId }) }),
-        ...(type === 'profile' && { profileId })
+        comment: reviewData.comment,
+        isAnonymous: reviewData.isAnonymous
       };
 
-      const response = await fetch(`${apiUrl}/api/reviews`, {
+      // Add gig-specific fields if this is a gig review
+      if (type === 'gig' && gigId) {
+        requestBody.gigId = gigId;
+        requestBody.title = `Review for ${targetName}`;
+      }
+
+      // Add profile-specific fields if this is a profile review
+      if (type === 'profile') {
+        requestBody.profileId = targetId;
+        requestBody.title = `Review for ${targetName}`;
+      }
+
+      // Add orderId if available
+      if (orderId) {
+        requestBody.orderId = orderId;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(reviewPayload)
+        body: JSON.stringify(requestBody)
       });
 
       if (response.ok) {
-        setReviewData({ rating: 5, title: '', comment: '', isAnonymous: false });
+        setSuccess('Review submitted successfully!');
         setShowReviewForm(false);
+        // Refresh reviews
         loadReviews();
+        // Refresh stats if this is a profile review
         if (type === 'profile') {
           loadStats();
         }
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        const error = await response.json();
-        alert(error.message || 'Failed to submit review');
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to submit review');
       }
     } catch (error) {
       console.error('Error submitting review:', error);
-      alert('Failed to submit review');
+      setError('Failed to submit review. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleMarkHelpful = async (reviewId: string) => {
+  const handleReviewHelpful = async (reviewId: string) => {
     try {
-      const response = await fetch(`${apiUrl}/api/reviews/${reviewId}/helpful`, {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/reviews/${reviewId}/helpful`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
       if (response.ok) {
+        // Refresh reviews to show updated helpful count
         loadReviews();
       }
     } catch (error) {
-      console.error('Error marking review helpful:', error);
+      console.error('Error marking review as helpful:', error);
     }
   };
 
-  const canLeaveReview = () => {
+  const canWriteReview = () => {
     if (!currentUserEmail) return false;
-    if (currentUserEmail === targetId) return false;
-    
-    // For gig reviews, we need gigId and targetId (orderId is optional)
-    if (type === 'gig' && (!gigId || !targetId)) return false;
-    
-    // For profile reviews, we need targetId and profileId
-    if (type === 'profile' && (!targetId || !profileId)) return false;
-    
-    // Check if user has already reviewed
-    const hasReviewed = reviews.some(review => review.reviewerId === currentUserEmail);
-    return !hasReviewed;
+    if (currentUserEmail === targetId) return false; // Can't review yourself
+    return true;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+  const hasUserReviewed = () => {
+    if (!currentUserEmail) return false;
+    return reviews.some(review => review.reviewerName === getUser()?.name || review.reviewerName === 'Anonymous');
   };
 
-  const renderStars = (rating: number) => {
+  if (loading) {
     return (
-      <div className="flex items-center">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <svg
-            key={star}
-            className={`w-4 h-4 ${star <= rating ? 'text-yellow-400' : 'text-gray-300'}`}
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-          </svg>
-        ))}
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
       </div>
     );
-  };
+  }
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <div className="bg-white rounded-lg shadow-sm border">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h3 className="text-xl font-semibold text-gray-900">
-            {type === 'gig' ? 'Gig Reviews' : 'Profile Reviews'}
-          </h3>
-          {stats && (
-            <div className="flex items-center gap-4 mt-2">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-gray-900">
-                  {stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'}
+      <div className="px-6 py-4 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Reviews</h3>
+            {stats && (
+              <div className="flex items-center space-x-4 mt-2">
+                <div className="flex items-center">
+                  <StarRating rating={stats.averageRating || 0} size="sm" />
+                  <span className="ml-2 text-sm text-gray-600">
+                    {stats.averageRating ? stats.averageRating.toFixed(1) : '0.0'} out of 5
+                  </span>
+                </div>
+                <span className="text-sm text-gray-600">
+                  {stats.totalReviews || reviews.length} reviews
                 </span>
-                {renderStars(Math.round(stats.averageRating || 0))}
-              </div>
-              <span className="text-gray-600">
-                {stats.totalReviews} {stats.totalReviews === 1 ? 'review' : 'reviews'}
-              </span>
-            </div>
-          )}
-        </div>
-        
-        {canLeaveReview() && (
-          <button
-            onClick={() => setShowReviewForm(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-          >
-            Write a Review
-          </button>
-        )}
-      </div>
-
-      {/* Review Form */}
-      {showReviewForm && (
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <h4 className="font-semibold mb-4">Write a Review</h4>
-          <form onSubmit={handleSubmitReview}>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Rating
-              </label>
-              <div className="flex items-center gap-2">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    onClick={() => setReviewData({ ...reviewData, rating: star })}
-                    className="focus:outline-none"
-                  >
-                    <svg
-                      className={`w-6 h-6 ${star <= reviewData.rating ? 'text-yellow-400' : 'text-gray-300'}`}
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {type === 'profile' && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Review Title (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={reviewData.title}
-                  onChange={(e) => setReviewData({ ...reviewData, title: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Summarize your experience"
-                  maxLength={200}
-                />
               </div>
             )}
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Review
-              </label>
-              <textarea
-                value={reviewData.comment}
-                onChange={(e) => setReviewData({ ...reviewData, comment: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={4}
-                placeholder="Share your experience..."
-                maxLength={1000}
-                required
-              />
-            </div>
-
-            <div className="mb-4">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={reviewData.isAnonymous}
-                  onChange={(e) => setReviewData({ ...reviewData, isAnonymous: e.target.checked })}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Post anonymously</span>
-              </label>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-              >
-                {submitting ? 'Submitting...' : 'Submit Review'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowReviewForm(false)}
-                className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+          </div>
+          
+          {canWriteReview() && !hasUserReviewed() && (
+            <button
+              onClick={() => setShowReviewForm(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Write a Review
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Reviews List */}
-      <div className="space-y-4">
-        {loading ? (
+      <div className="p-6">
+        {reviews.length === 0 ? (
           <div className="text-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-2 text-gray-600">Loading reviews...</p>
-          </div>
-        ) : reviews.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-600">No reviews yet. Be the first to review!</p>
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.118 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No reviews yet</h3>
+            <p className="text-gray-600">
+              {canWriteReview() && !hasUserReviewed() 
+                ? 'Be the first to review this ' + (type === 'gig' ? 'gig' : 'profile') + '!'
+                : 'No reviews have been submitted yet.'
+              }
+            </p>
           </div>
         ) : (
-          reviews.map((review) => (
-            <div key={review._id} className="border-b border-gray-200 pb-4 last:border-b-0">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium text-gray-600">
-                      {review.isAnonymous ? 'A' : review.reviewerName.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {review.isAnonymous ? 'Anonymous' : review.reviewerName}
+          <div className="space-y-6">
+            {reviews.map((review) => (
+              <div key={review._id} className="border-b border-gray-200 pb-6 last:border-b-0">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                      <span className="text-sm font-medium text-gray-600">
+                        {review.isAnonymous ? 'A' : review.reviewerName.charAt(0).toUpperCase()}
+                      </span>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      {review.reviewerRole === 'client' ? 'Client' : 'Freelancer'}
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {review.isAnonymous ? 'Anonymous' : review.reviewerName}
+                      </p>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <StarRating rating={review.rating} size="sm" />
+                        <span className="text-sm text-gray-500">
+                          {new Date(review.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  {renderStars(review.rating)}
-                  <div className="text-sm text-gray-600 mt-1">
-                    {formatDate(review.createdAt)}
-                  </div>
-                </div>
-              </div>
-
-              {review.title && (
-                <h4 className="font-semibold text-gray-900 mb-2">{review.title}</h4>
-              )}
-
-              <p className="text-gray-700 mb-3">{review.comment}</p>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-sm text-gray-600">
-                  {review.helpfulCount > 0 && (
-                    <span>{review.helpfulCount} {review.helpfulCount === 1 ? 'person' : 'people'} found this helpful</span>
-                  )}
+                  
+                  <button
+                    onClick={() => handleReviewHelpful(review._id)}
+                    className="flex items-center space-x-1 text-sm text-gray-500 hover:text-blue-600 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                    </svg>
+                    <span>{review.helpfulCount || 0}</span>
+                  </button>
                 </div>
                 
-                <button
-                  onClick={() => handleMarkHelpful(review._id)}
-                  className="text-sm text-blue-600 hover:text-blue-700 transition"
-                >
-                  {review.helpfulUsers?.includes(currentUserEmail || '') ? 'Helpful' : 'Mark as helpful'}
-                </button>
+                {review.title && (
+                  <h4 className="text-sm font-medium text-gray-900 mt-3">{review.title}</h4>
+                )}
+                
+                <p className="text-gray-700 mt-2 leading-relaxed">{review.comment}</p>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center space-x-2 mt-8">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Previous
+            </button>
+            
+            <span className="text-sm text-gray-600">
+              Page {currentPage} of {totalPages}
+            </span>
+            
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            >
+              Next
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-6">
-          <button
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-            className="px-3 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-          >
-            Previous
-          </button>
-          
-          <span className="text-sm text-gray-600">
-            Page {currentPage} of {totalPages}
-          </span>
-          
-          <button
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-            className="px-3 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
+      {/* Review Form Modal */}
+      {showReviewForm && (
+        <ReviewForm
+          orderId={orderId}
+          gigTitle={targetName}
+          onSubmit={handleSubmitReview}
+          onCancel={() => setShowReviewForm(false)}
+          isLoading={submitting}
+        />
       )}
 
-      {/* Sort Options */}
-      {reviews.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">Sort by:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="text-sm border border-gray-300 rounded-lg px-2 py-1"
-            >
-              <option value="date">Most Recent</option>
-              <option value="rating">Highest Rated</option>
-              <option value="helpful">Most Helpful</option>
-            </select>
-          </div>
+      {/* Success/Error Messages */}
+      {success && (
+        <div className="fixed top-4 right-4 z-50 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+          {success}
+        </div>
+      )}
+      
+      {error && (
+        <div className="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
         </div>
       )}
     </div>

@@ -1,52 +1,61 @@
 import express from 'express';
-import { Notification } from '../models/notification.js';
-import { User } from '../models/user.js';
 import { authenticateJWT } from '../middleware/authMiddleware.js';
+import { 
+  getUserNotifications, 
+  markNotificationAsRead, 
+  getUnreadNotificationCount,
+  cleanupOldNotifications,
+  markAllNotificationsAsRead
+} from '../services/notificationService.js';
 
 const router = express.Router();
 
-// Get all notifications for a user
+// Get user's notifications with pagination
 router.get('/', authenticateJWT, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { page = 1, limit = 20 } = req.query;
+    const userEmail = req.user.email;
+    const { limit = 20, offset = 0, category, type, unreadOnly = false } = req.query;
     
-    const notifications = await Notification.find({ recipient: userId })
-      .populate('sender', 'name email profilePhoto')
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    let notifications = await getUserNotifications(userEmail, parseInt(limit), parseInt(offset));
     
-    const total = await Notification.countDocuments({ recipient: userId });
+    // Filter by category if specified
+    if (category) {
+      notifications = notifications.filter(n => n.category === category);
+    }
+    
+    // Filter by type if specified
+    if (type) {
+      notifications = notifications.filter(n => n.type === type);
+    }
+    
+    // Filter unread only if specified
+    if (unreadOnly === 'true') {
+      notifications = notifications.filter(n => !n.read);
+    }
     
     res.json({
       notifications,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      total
+      pagination: {
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        total: notifications.length
+      }
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Get notifications error:', error);
+    res.status(500).json({ error: 'Failed to fetch notifications' });
   }
 });
 
 // Get unread notification count
 router.get('/unread-count', authenticateJWT, async (req, res) => {
   try {
-    const userId = req.user.id;
-    
-    if (!userId) {
-      return res.status(400).json({ message: 'User ID not found in token' });
-    }
-    
-    const count = await Notification.countDocuments({ 
-      recipient: userId, 
-      read: false 
-    });
-    
+    const userEmail = req.user.email;
+    const count = await getUnreadNotificationCount(userEmail);
     res.json({ count });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Get unread count error:', error);
+    res.status(500).json({ error: 'Failed to fetch unread count' });
   }
 });
 
@@ -54,37 +63,33 @@ router.get('/unread-count', authenticateJWT, async (req, res) => {
 router.put('/:notificationId/read', authenticateJWT, async (req, res) => {
   try {
     const { notificationId } = req.params;
-    const userId = req.user.id;
+    const userEmail = req.user.email;
     
-    const notification = await Notification.findOneAndUpdate(
-      { _id: notificationId, recipient: userId },
-      { read: true },
-      { new: true }
-    );
-    
+    const notification = await markNotificationAsRead(notificationId, userEmail);
     if (!notification) {
-      return res.status(404).json({ message: 'Notification not found' });
+      return res.status(404).json({ error: 'Notification not found' });
     }
     
-    res.json(notification);
+    res.json({ message: 'Notification marked as read', notification });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Mark notification read error:', error);
+    res.status(500).json({ error: 'Failed to mark notification as read' });
   }
 });
 
 // Mark all notifications as read
 router.put('/mark-all-read', authenticateJWT, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userEmail = req.user.email;
+    const result = await markAllNotificationsAsRead(userEmail);
     
-    await Notification.updateMany(
-      { recipient: userId, read: false },
-      { read: true }
-    );
-    
-    res.json({ message: 'All notifications marked as read' });
+    res.json({ 
+      message: 'All notifications marked as read', 
+      updatedCount: result.modifiedCount 
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Mark all notifications read error:', error);
+    res.status(500).json({ error: 'Failed to mark all notifications as read' });
   }
 });
 
@@ -92,20 +97,93 @@ router.put('/mark-all-read', authenticateJWT, async (req, res) => {
 router.delete('/:notificationId', authenticateJWT, async (req, res) => {
   try {
     const { notificationId } = req.params;
-    const userId = req.user.id;
+    const userEmail = req.user.email;
     
-    const notification = await Notification.findOneAndDelete({
+    const { Notification } = await import('../models/notification.js');
+    const result = await Notification.findOneAndDelete({
       _id: notificationId,
-      recipient: userId
+      recipient: userEmail
     });
     
-    if (!notification) {
-      return res.status(404).json({ message: 'Notification not found' });
+    if (!result) {
+      return res.status(404).json({ error: 'Notification not found' });
     }
     
-    res.json({ message: 'Notification deleted' });
+    res.json({ message: 'Notification deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Delete notification error:', error);
+    res.status(500).json({ error: 'Failed to delete notification' });
+  }
+});
+
+// Get notification statistics
+router.get('/stats', authenticateJWT, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { Notification } = await import('../models/notification.js');
+    
+    const stats = await Notification.aggregate([
+      { $match: { recipient: userEmail } },
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 },
+          unreadCount: {
+            $sum: { $cond: ['$read', 0, 1] }
+          }
+        }
+      }
+    ]);
+    
+    const totalCount = await Notification.countDocuments({ recipient: userEmail });
+    const unreadCount = await Notification.countDocuments({ 
+      recipient: userEmail, 
+      read: false 
+    });
+    
+    res.json({
+      total: totalCount,
+      unread: unreadCount,
+      byType: stats,
+      categories: {
+        proposal: stats.filter(s => s._id.includes('proposal')).reduce((sum, s) => sum + s.count, 0),
+        payment: stats.filter(s => s._id.includes('payment')).reduce((sum, s) => sum + s.count, 0),
+        message: stats.filter(s => s._id.includes('message')).reduce((sum, s) => sum + s.count, 0),
+        gig: stats.filter(s => s._id.includes('gig')).reduce((sum, s) => sum + s.count, 0),
+        order: stats.filter(s => s._id.includes('order')).reduce((sum, s) => sum + s.count, 0),
+        system: stats.filter(s => !s._id.includes('proposal') && !s._id.includes('payment') && !s._id.includes('message') && !s._id.includes('gig') && !s._id.includes('order')).reduce((sum, s) => sum + s.count, 0)
+      }
+    });
+  } catch (error) {
+    console.error('Get notification stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch notification statistics' });
+  }
+});
+
+// Cleanup old notifications (admin only)
+router.delete('/cleanup/old', authenticateJWT, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    const { daysOld = 30 } = req.query;
+    
+    // Only allow users to cleanup their own notifications
+    const { Notification } = await import('../models/notification.js');
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(daysOld));
+    
+    const result = await Notification.deleteMany({
+      recipient: userEmail,
+      createdAt: { $lt: cutoffDate },
+      read: true
+    });
+    
+    res.json({ 
+      message: `Cleaned up ${result.deletedCount} old notifications`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('Cleanup notifications error:', error);
+    res.status(500).json({ error: 'Failed to cleanup old notifications' });
   }
 });
 

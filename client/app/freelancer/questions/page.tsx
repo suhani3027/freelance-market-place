@@ -1,8 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../../lib/api';
+import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../lib/auth.js';
 
 const steps = [
   'Profile Basics',
@@ -14,64 +15,109 @@ const steps = [
   'Review & Submit',
 ];
 
-export default function FreelancerQuestions() {
+export default function FreelancerQuestionsPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
-  // Step 1: Profile basics
-  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
-  const [profilePhotoPreview, setProfilePhotoPreview] = useState('');
   const [fullName, setFullName] = useState('');
   const [location, setLocation] = useState('');
   const [englishLevel, setEnglishLevel] = useState('');
-
-  // Step 2: Title & Overview
   const [title, setTitle] = useState('');
   const [overview, setOverview] = useState('');
-
-  // Step 3: Skills & Categories
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryInput, setCategoryInput] = useState('');
-  const popularSkills = [
-    'Web Development', 'Graphic Design', 'Content Writing', 'JavaScript', 'React', 'Node.js', 'UI/UX', 'Python', 'Data Entry', 'SEO', 'WordPress', 'HTML', 'CSS', 'Project Management', 'Translation', 'Copywriting', 'Mobile App', 'Marketing', 'Video Editing', 'Customer Service', 'Accounting',
-  ];
-  const popularCategories = [
-    'Development & IT', 'Design & Creative', 'Writing & Translation', 'Sales & Marketing', 'Admin & Customer Support', 'Finance & Accounting', 'Engineering & Architecture', 'Legal',
-  ];
-
-  // Step 4: Work Preferences
   const [hourlyRate, setHourlyRate] = useState('');
-  const [availability, setAvailability] = useState('');
   const [experienceLevel, setExperienceLevel] = useState('');
-
-  // Step 5: Education & Employment
+  const [availability, setAvailability] = useState('');
   const [education, setEducation] = useState<any[]>([]);
   const [employment, setEmployment] = useState<any[]>([]);
-  // Temp states for adding new entries
-  const [eduInput, setEduInput] = useState({ school: '', degree: '', field: '', startYear: '', endYear: '' });
-  const [empInput, setEmpInput] = useState({ company: '', role: '', startYear: '', endYear: '', description: '' });
-
-  // Step 6: Certifications & Portfolio
   const [certifications, setCertifications] = useState<any[]>([]);
-  const [certInput, setCertInput] = useState({ name: '', issuer: '', year: '' });
   const [portfolio, setPortfolio] = useState<any[]>([]);
-  const [portfolioInput, setPortfolioInput] = useState({ title: '', description: '', url: '', image: '' });
-
-  // Step 7: Review & Submit
+  const [linkedin, setLinkedin] = useState('');
+  const [github, setGithub] = useState('');
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState('');
+  const [user, setUser] = useState(null);
+
+  // Input objects for forms
+  const [eduInput, setEduInput] = useState({
+    school: '',
+    degree: '',
+    field: '',
+    startYear: '',
+    endYear: ''
+  });
+
+  const [empInput, setEmpInput] = useState({
+    company: '',
+    role: '',
+    startYear: '',
+    endYear: '',
+    description: ''
+  });
+
+  const [certInput, setCertInput] = useState({
+    name: '',
+    issuer: '',
+    year: ''
+  });
+
+  const [portfolioInput, setPortfolioInput] = useState({
+    title: '',
+    description: '',
+    url: '',
+    image: ''
+  });
+
+  // Popular skills and categories for quick selection
+  const popularSkills = [
+    'JavaScript', 'React', 'Node.js', 'Python', 'Java', 'C++', 'HTML/CSS',
+    'SQL', 'MongoDB', 'AWS', 'Docker', 'Git', 'TypeScript', 'Vue.js',
+    'Angular', 'PHP', 'Ruby', 'Go', 'Rust', 'Swift', 'Kotlin'
+  ];
+
+  const popularCategories = [
+    'Web Development', 'Mobile Development', 'Data Science', 'AI/ML',
+    'DevOps', 'UI/UX Design', 'Game Development', 'Blockchain',
+    'Cybersecurity', 'Cloud Computing', 'Database Design', 'API Development'
+  ];
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
-      const role = localStorage.getItem('role');
-      if (!token || role !== 'freelancer') {
-        window.location.href = '/login';
-      }
-    }
+    checkAuthentication();
   }, []);
+
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const token = getToken();
+      const userData = getUser();
+      
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      }
+      
+      // Check if user is a freelancer
+      if (userData.role !== 'freelancer') {
+        alert('Only freelancers can access this page');
+        router.push('/dashboard');
+        return;
+      }
+      
+      setUser(userData);
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
+    }
+  };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

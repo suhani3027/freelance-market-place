@@ -123,15 +123,86 @@ router.put('/:email', authenticateJWT, async (req, res) => {
     // Remove userId from updateData if it exists to prevent conflicts
     const { userId, ...cleanUpdateData } = updateData;
     
+    // Transform the data to match the model schema
+    const transformedData = {
+      ...cleanUpdateData,
+      // Handle education field - if it's a string, convert to array format
+      education: cleanUpdateData.education ? 
+        (typeof cleanUpdateData.education === 'string' ? 
+          [{ school: 'Education', degree: cleanUpdateData.education, field: '', startYear: '', endYear: '' }] : 
+          cleanUpdateData.education) : [],
+      
+      // Handle certifications field - if it's a string, convert to array format
+      certifications: cleanUpdateData.certifications ? 
+        (typeof cleanUpdateData.certifications === 'string' ? 
+          [{ name: cleanUpdateData.certifications, issuer: '', year: '' }] : 
+          cleanUpdateData.certifications) : [],
+      
+      // Handle portfolio field - if it's a string URL, convert to array format
+      portfolio: cleanUpdateData.portfolio ? 
+        (typeof cleanUpdateData.portfolio === 'string' ? 
+          [{ title: 'Portfolio', description: '', url: cleanUpdateData.portfolio, image: '' }] : 
+          cleanUpdateData.portfolio) : [],
+      
+      // Handle social links - combine LinkedIn and GitHub into socialLinks array
+      socialLinks: [
+        ...(cleanUpdateData.linkedin ? [{ platform: 'LinkedIn', url: cleanUpdateData.linkedin }] : []),
+        ...(cleanUpdateData.github ? [{ platform: 'GitHub', url: cleanUpdateData.github }] : []),
+        ...(cleanUpdateData.socialLinks || [])
+      ],
+      
+      // Handle languages field - if it's an array of strings, convert to object format
+      languages: cleanUpdateData.languages ? 
+        (Array.isArray(cleanUpdateData.languages) && typeof cleanUpdateData.languages[0] === 'string' ? 
+          cleanUpdateData.languages.map(lang => ({ name: lang, proficiency: 'Fluent' })) : 
+          cleanUpdateData.languages) : [],
+      
+      // Ensure skills is an array and not empty
+      skills: Array.isArray(cleanUpdateData.skills) && cleanUpdateData.skills.length > 0 ? 
+        cleanUpdateData.skills : ['General'],
+      
+      // Convert hourlyRate to number if it's a string
+      hourlyRate: cleanUpdateData.hourlyRate ? Number(cleanUpdateData.hourlyRate) : 0,
+      
+      // Ensure overview has minimum length or provide default
+      overview: cleanUpdateData.overview && cleanUpdateData.overview.trim().length > 0 ? 
+        cleanUpdateData.overview : 'No overview provided'
+    };
+    
+    // Remove the individual fields that we've transformed
+    delete transformedData.linkedin;
+    delete transformedData.github;
+    
+    console.log('Updating profile for:', decodedEmail);
+    console.log('Transformed data:', JSON.stringify(transformedData, null, 2));
+    
     const profile = await FreelancerProfile.findOneAndUpdate(
       { email: decodedEmail },
-      { $set: cleanUpdateData },
-      { new: true, upsert: true }
+      { $set: transformedData },
+      { new: true, upsert: true, runValidators: true }
     );
     
-    res.json(profile);
+    res.json({
+      ...profile.toObject(),
+      message: 'Profile updated successfully!'
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error('Profile update error:', err);
+    
+    // Handle validation errors
+    if (err.name === 'ValidationError') {
+      const validationErrors = Object.values(err.errors).map((error) => error.message);
+      return res.status(400).json({ 
+        message: 'Validation failed', 
+        details: validationErrors.join(', ') 
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Failed to update profile', 
+      details: err.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 

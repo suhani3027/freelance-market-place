@@ -1,7 +1,9 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../lib/api';
+import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../lib/auth.js';
 import Link from 'next/link';
 
 interface Gig {
@@ -28,14 +30,15 @@ interface Stats {
   totalViews: number;
 }
 
-export default function MyGigs() {
+export default function MyGigsPage() {
+  const router = useRouter();
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All Status');
   const [sortBy, setSortBy] = useState('Newest First');
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [user, setUser] = useState(null);
   const [stats, setStats] = useState<Stats>({
     totalGigs: 0,
     activeGigs: 0,
@@ -45,180 +48,147 @@ export default function MyGigs() {
   });
 
   useEffect(() => {
-    // Check user role first
-    const role = localStorage.getItem('role');
-    setUserRole(role);
-    
-    if (role === 'client') {
-      fetchGigs();
-    } else {
-      setLoading(false);
-      setError('Access denied. This page is only for clients.');
-    }
+    checkAuthentication();
   }, []);
 
   useEffect(() => {
     calculateStats();
   }, [gigs]);
 
-  const fetchGigs = async () => {
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
-      const email = localStorage.getItem('email');
-      if (!email) {
-        setError('Please log in to view your gigs');
-        setLoading(false);
+      const token = getToken();
+      const userData = getUser();
+      
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
         return;
       }
-
-      const response = await fetch(`${API_BASE_URL}/api/gigs?clientId=${encodeURIComponent(email)}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        // If no gigs exist, create some sample data for demonstration
-        if (data.length === 0) {
-          const sampleGigs = [
-            {
-              _id: 'sample1',
-              title: 'Professional Mobile App UI/UX Design',
-              description: 'Create stunning, user-friendly mobile app designs with modern UI/UX principles. Perfect for startups and established businesses.',
-              amount: 500,
-              duration: '7 days',
-              skills: ['UI/UX Design', 'Mobile Design', 'Figma', 'Prototyping'],
-              status: 'pending',
-              createdAt: new Date().toISOString(),
-              orders: 0,
-              views: 12,
-              rating: 0,
-              reviewCount: 0,
-              image: 'https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=400&h=300&fit=crop'
-            },
-            {
-              _id: 'sample2',
-              title: 'SEO-Optimized Content Writing Services',
-              description: 'High-quality, SEO-friendly content that ranks well in search engines. Blog posts, articles, and website content.',
-              amount: 75,
-              duration: '3 days',
-              skills: ['Content Writing', 'SEO', 'Copywriting', 'Keyword Research'],
-              status: 'draft',
-              createdAt: new Date(Date.now() - 86400000).toISOString(),
-              orders: 0,
-              views: 45,
-              rating: 0,
-              reviewCount: 0,
-              image: 'https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=400&h=300&fit=crop'
-            },
-            {
-              _id: 'sample3',
-              title: 'Modern Responsive Website Development',
-              description: 'Professional website development with modern design, responsive layout, and optimal performance for all devices.',
-              amount: 299,
-              duration: '10 days',
-              skills: ['Web Development', 'React', 'Node.js', 'Responsive Design'],
-              status: 'active',
-              createdAt: new Date(Date.now() - 172800000).toISOString(),
-              orders: 23,
-              views: 1234,
-              rating: 4.9,
-              reviewCount: 18,
-              image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=400&h=300&fit=crop'
-            },
-            {
-              _id: 'sample4',
-              title: 'Professional Video Production & Editing',
-              description: 'High-quality video production and editing services for marketing, social media, and corporate content.',
-              amount: 150,
-              duration: '5 days',
-              skills: ['Video Editing', 'Motion Graphics', 'Adobe Premiere', 'After Effects'],
-              status: 'paused',
-              createdAt: new Date(Date.now() - 259200000).toISOString(),
-              orders: 5,
-              views: 89,
-              rating: 4.7,
-              reviewCount: 3,
-              image: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=400&h=300&fit=crop'
-            }
-          ];
-          setGigs(sampleGigs);
-        } else {
-          setGigs(data);
-        }
-      } else {
-        setError('Failed to fetch gigs');
+      
+      // Check if user is a client
+      if (userData.role !== 'client') {
+        alert('Only clients can view their gigs');
+        router.push('/dashboard');
+        return;
       }
+      
+      setUser(userData);
+      fetchMyGigs();
     } catch (error) {
-      setError('Failed to fetch gigs');
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleGigStatus = async (gigId: string) => {
+  const fetchMyGigs = async () => {
     try {
-      // Handle sample gigs locally
-      if (gigId.startsWith('sample')) {
-        setGigs(prevGigs => 
-          prevGigs.map(gig => 
-            gig._id === gigId 
-              ? { 
-                  ...gig, 
-                  status: gig.status === 'active' ? 'paused' : 'active',
-                  // Add a random order when activating sample gigs
-                  orders: gig.status === 'active' ? gig.orders : (gig.orders || 0) + Math.floor(Math.random() * 3) + 1
-                }
-              : gig
-          )
-        );
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching gigs');
         return;
       }
 
-      // Handle real gigs via API
-      const response = await fetch(`${API_BASE_URL}/api/gigs/${gigId}/toggle-status`, {
-        method: 'PATCH',
+      const response = await fetch(`${API_BASE_URL}/api/gigs/my-gigs`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
       if (response.ok) {
-        // Refresh gigs to get updated data
-        await fetchGigs();
+        const data = await response.json();
+        setGigs(data);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        setError('Failed to update gig status');
+        console.error('Failed to fetch gigs:', response.status);
+        setError('Failed to load gigs');
       }
     } catch (error) {
-      setError('Failed to update gig status');
+      console.error('Failed to fetch gigs:', error);
+      setError('Failed to load gigs');
+    }
+  };
+
+  const updateGigStatus = async (gigId: string, status: string) => {
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for updating gig status');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/gigs/${gigId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (response.ok) {
+        setGigs(gigs.map(gig => 
+          gig._id === gigId ? { ...gig, status } : gig
+        ));
+        alert('Gig status updated successfully');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        alert('Failed to update gig status');
+      }
+    } catch (error) {
+      console.error('Error updating gig status:', error);
+      alert('Failed to update gig status');
     }
   };
 
   const deleteGig = async (gigId: string) => {
-    if (!confirm('Are you sure you want to delete this gig? This action cannot be undone.')) return;
+    if (!confirm('Are you sure you want to delete this gig?')) return;
 
     try {
-      // Handle sample gigs locally
-      if (gigId.startsWith('sample')) {
-        setGigs(prevGigs => prevGigs.filter(gig => gig._id !== gigId));
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for deleting gig');
         return;
       }
 
       const response = await fetch(`${API_BASE_URL}/api/gigs/${gigId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
       if (response.ok) {
         setGigs(gigs.filter(gig => gig._id !== gigId));
+        alert('Gig deleted successfully');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        setError('Failed to delete gig');
+        alert('Failed to delete gig');
       }
     } catch (error) {
-      setError('Failed to delete gig');
+      console.error('Error deleting gig:', error);
+      alert('Failed to delete gig');
     }
   };
 
@@ -329,7 +299,7 @@ export default function MyGigs() {
           <div className="text-center py-20">
             <div className="text-red-500 text-xl mb-4">Error: {error}</div>
             <button 
-              onClick={fetchGigs}
+              onClick={fetchMyGigs}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
               Try Again
@@ -354,7 +324,7 @@ export default function MyGigs() {
             </div>
             <div className="flex gap-4">
               <button
-                onClick={fetchGigs}
+                onClick={fetchMyGigs}
                 disabled={loading}
                 className="px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
@@ -616,7 +586,7 @@ export default function MyGigs() {
                           ✏️ Edit
                         </Link>
                         <button 
-                          onClick={() => toggleGigStatus(gig._id)}
+                          onClick={() => updateGigStatus(gig._id, gig.status === 'active' ? 'paused' : 'active')}
                           className="flex-1 px-3 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm font-medium transition-colors"
                         >
                           {gig.status === 'active' ? '⏸️' : '▶️'}

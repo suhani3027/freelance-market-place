@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from 'next/navigation';
+import { getToken, isValidTokenFormat, getUser } from '../../lib/auth.js';
 
 interface Gig {
   _id: string;
@@ -139,6 +140,42 @@ function GigListContent() {
   if (!role) {
     return <div className="flex flex-col items-center justify-center h-64 text-lg">Please log in to view gigs.</div>;
   }
+
+  const handleApply = async (gigId: string) => {
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for applying to gig');
+        router.push('/login');
+        return;
+      }
+
+      const userData = getUser();
+      if (!userData) {
+        router.push('/login');
+        return;
+      }
+
+      // Check if user is a freelancer
+      if (userData.role !== 'freelancer') {
+        alert('Only freelancers can apply to gigs');
+        return;
+      }
+
+      // Check if user is trying to apply to their own gig
+      const gig = gigs.find(g => g._id === gigId);
+      if (gig && gig.clientEmail === userData.email) {
+        alert('You cannot apply to your own gig');
+        return;
+      }
+
+      router.push(`/gigs/${gigId}`);
+    } catch (error) {
+      console.error('Error handling gig application:', error);
+      router.push('/login');
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">
@@ -322,7 +359,13 @@ function GigListContent() {
                 setProposalError('');
                 try {
                   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-                  const token = localStorage.getItem('token');
+                  const token = getToken();
+                  
+                  if (!token || !isValidTokenFormat(token)) {
+                    setProposalError('Authentication required. Please log in again.');
+                    return;
+                  }
+                  
                   const res = await fetch(`${apiUrl}/api/proposals`, {
                     method: 'POST',
                     headers: { 

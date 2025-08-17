@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api.js';
 import ProtectedRoute from '../components/ProtectedRoute';
+import { getToken, getUser, isValidTokenFormat } from '../../lib/auth.js';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -45,27 +46,40 @@ export default function Dashboard() {
 
   const fetchUserData = async () => {
     try {
-      const email = localStorage.getItem('email');
-      const token = localStorage.getItem('token');
+      const token = getToken();
+      const userData = getUser();
       
-      if (!email || !token) {
+      // Also check for legacy token format
+      const legacyToken = localStorage.getItem('token');
+      const legacyEmail = localStorage.getItem('email');
+      const legacyRole = localStorage.getItem('role');
+      
+      if (token && userData && isValidTokenFormat(token)) {
+        const apiUrl = API_BASE_URL;
+        const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(userData.email)}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const userDataFromApi = await response.json();
+          setUser(userDataFromApi);
+          // Fetch initial stats only once
+          fetchStats(userDataFromApi.role, userData.email);
+          fetchProposalStats();
+        }
+      } else if (legacyToken && legacyEmail && legacyRole) {
+        // Handle legacy token format
+        const legacyUser = { email: legacyEmail, role: legacyRole, name: localStorage.getItem('name') };
+        setUser(legacyUser);
+        // Fetch initial stats only once
+        fetchStats(legacyRole, legacyEmail);
+        fetchProposalStats();
+      } else {
+        console.log('No valid token or user data found');
         setLoading(false);
         return;
-      }
-
-      const apiUrl = API_BASE_URL;
-      const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(email)}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-        // Fetch initial stats only once
-        fetchStats(userData.role, email);
-        fetchProposalStats();
       }
     } catch (error) {
       console.error('Failed to fetch user data:', error);
@@ -77,7 +91,13 @@ export default function Dashboard() {
   const fetchStats = async (role: string, email: string) => {
     try {
       setStatsLoading(true);
-      const token = localStorage.getItem('token');
+      const token = getToken() || localStorage.getItem('token');
+      
+      if (!token) {
+        console.log('No valid token available for fetching stats');
+        return;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/stats/${role}/${encodeURIComponent(email)}`, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -101,11 +121,12 @@ export default function Dashboard() {
 
   const fetchProposalStats = async () => {
     try {
-      const email = localStorage.getItem('email');
-      const token = localStorage.getItem('token');
-      const role = localStorage.getItem('role');
+      const email = getUser()?.email || localStorage.getItem('email');
+      const token = getToken() || localStorage.getItem('token');
+      const role = getUser()?.role || localStorage.getItem('role');
 
       if (!email || !token || !role) {
+        console.log('No valid token or user data available for fetching proposal stats');
         return;
       }
 
@@ -127,7 +148,7 @@ export default function Dashboard() {
 
       // Also fetch orders stats for completed projects
       try {
-        const ordersResponse = await fetch(`${apiUrl}/api/payments/orders/${encodeURIComponent(email)}/${role}`, {
+        const ordersResponse = await fetch(`${apiUrl}/api/orders`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -135,7 +156,7 @@ export default function Dashboard() {
 
         if (ordersResponse.ok) {
           const ordersData = await ordersResponse.json();
-          const completedOrders = ordersData.filter((order: any) => order.status === 'completed').length;
+          const completedOrders = ordersData.filter((order: any) => ['completed', 'paid'].includes(order.status)).length;
           
           // Update completed projects count
           setProposalStats(prev => ({

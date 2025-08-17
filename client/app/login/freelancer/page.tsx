@@ -3,31 +3,47 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '../../../lib/api';
+import { setAuthData } from '../../../lib/auth';
 
 export default function FreelancerLogin() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
+      
       const data = await res.json();
       if (!res.ok) {
         setError(data.message || data.error || 'Login failed.');
       } else {
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        localStorage.setItem('role', data.role || 'freelancer');
-        localStorage.setItem('email', data.email || form.email);
-        localStorage.setItem('name', (data.user?.name) || data.name || form.email.split('@')[0]);
-        localStorage.setItem('profilePhoto', (data.user?.profilePhoto) || 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png');
+        // Validate tokens before storing
+        if (!data.accessToken || !data.refreshToken) {
+          setError("Invalid response from server - missing tokens.");
+          return;
+        }
+
+        // Use the new authentication system
+        const success = setAuthData(data.accessToken, data.refreshToken, {
+          email: data.email || form.email,
+          role: data.role || 'freelancer',
+          name: data.user?.name || data.name || form.email.split('@')[0]
+        });
+
+        if (!success) {
+          setError("Failed to store authentication data. Please try again.");
+          return;
+        }
         
         // Check if freelancer profile exists
         try {
@@ -36,6 +52,7 @@ export default function FreelancerLogin() {
               'Authorization': `Bearer ${data.accessToken}`
             }
           });
+          
           if (profileRes.ok) {
             const profileData = await profileRes.json();
             if (profileData.title && profileData.overview && profileData.skills && profileData.skills.length > 0) {
@@ -55,7 +72,10 @@ export default function FreelancerLogin() {
         }
       }
     } catch (err) {
+      console.error('Login error:', err);
       setError('Server error. Please try again later.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -69,6 +89,7 @@ export default function FreelancerLogin() {
           placeholder="Email"
           value={form.email}
           onChange={e => setForm({ ...form, email: e.target.value })}
+          disabled={isLoading}
         />
         <input
           className="border p-2 rounded"
@@ -76,10 +97,15 @@ export default function FreelancerLogin() {
           placeholder="Password"
           value={form.password}
           onChange={e => setForm({ ...form, password: e.target.value })}
+          disabled={isLoading}
         />
         {error && <div className="text-red-500">{error}</div>}
-        <button className="bg-green-500 text-white py-2 rounded hover:bg-green-600" type="submit">
-          Log in
+        <button 
+          className={`py-2 rounded text-white ${isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-500 hover:bg-green-600'}`} 
+          type="submit"
+          disabled={isLoading}
+        >
+          {isLoading ? 'Logging in...' : 'Log in'}
         </button>
       </form>
     </div>

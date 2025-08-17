@@ -1,5 +1,5 @@
 import { io, Socket } from "socket.io-client";
-import { getSocketUrl } from "../../lib/api";
+import { getSocketUrl } from "../../lib/api.js";
 
 const SOCKET_URL = getSocketUrl(); // Use the utility function
 

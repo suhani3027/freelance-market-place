@@ -20,9 +20,16 @@ const connectionSchema = new mongoose.Schema({
   isRead: { type: Boolean, default: false }
 }, { timestamps: true });
 
-// Compound index to prevent duplicate connections - using the correct field names
+// Compound index to prevent duplicate connections
 connectionSchema.index({ requesterEmail: 1, recipientEmail: 1 }, { unique: true });
 
-const Connection = mongoose.models.Connection || mongoose.model("Connection", connectionSchema);
+// Pre-save middleware to ensure all required fields are present
+connectionSchema.pre('save', function(next) {
+  if (!this.requesterEmail || !this.recipientEmail || !this.requesterName || !this.recipientName) {
+    return next(new Error('All required fields must be present'));
+  }
+  next();
+});
 
+const Connection = mongoose.models.Connection || mongoose.model("Connection", connectionSchema);
 export { Connection }; 

@@ -21,7 +21,7 @@ export default function Welcome() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
       <h1 className="text-4xl font-bold mb-4">Welcome to TaskNest</h1>
-      <p className="text-lg">We're excited to have you on board!</p>
+      <p className="text-lg">We&apos;re excited to have you on board!</p>
     </div>
   );
 } 

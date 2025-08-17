@@ -1,36 +1,77 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '../../lib/api';
-import { useSocket } from '../components/SocketProvider';
+import { getToken, getUser } from '../../lib/auth';
 
-export default function Notifications() {
-  const { updateUnreadCounts } = useSocket();
-  const [notifications, setNotifications] = useState([]);
+interface Notification {
+  _id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: any;
+  read: boolean;
+  createdAt: string;
+  category: string;
+  priority: string;
+}
+
+interface NotificationStats {
+  total: number;
+  unread: number;
+  byType: any[];
+  categories: {
+    proposal: number;
+    payment: number;
+    message: number;
+    gig: number;
+    order: number;
+    system: number;
+  };
+}
+
+export default function NotificationsPage() {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [stats, setStats] = useState<NotificationStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'all' | 'unread' | 'proposal' | 'payment' | 'message' | 'gig' | 'order'>('all');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [markingRead, setMarkingRead] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     fetchNotifications();
-    // Update unread counts when page loads
-    updateUnreadCounts();
-  }, [page, updateUnreadCounts]);
+    fetchStats();
+  }, [activeTab, page]);
 
   const fetchNotifications = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/notifications?page=${page}&limit=20`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      setLoading(true);
+      const token = getToken();
+      if (!token) return;
+
+      let url = `${API_BASE_URL}/api/notifications?limit=20&offset=${(page - 1) * 20}`;
       
-      if (res.ok) {
-        const data = await res.json();
-        const list = Array.isArray(data) ? data : (data.notifications || []);
-        if (page === 1) setNotifications(list); else setNotifications(prev => [...prev, ...list]);
-        const totalPages = data.totalPages ?? (list.length === 20 ? page + 1 : page);
-        setHasMore(page < totalPages);
+      if (activeTab === 'unread') {
+        url += '&unreadOnly=true';
+      } else if (activeTab !== 'all') {
+        url += `&category=${activeTab}`;
+      }
+
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (page === 1) {
+          setNotifications(data.notifications);
+        } else {
+          setNotifications(prev => [...prev, ...data.notifications]);
+        }
+        setHasMore(data.notifications.length === 20);
       }
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
@@ -39,185 +80,380 @@ export default function Notifications() {
     }
   };
 
-  const markAsRead = async (notificationId) => {
+  const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}/read`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/notifications/stats`, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-      
-      if (res.ok) {
+
+      if (response.ok) {
+        const data = await response.json();
+        setStats(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notification stats:', error);
+    }
+  };
+
+  const markAsRead = async (notificationId: string) => {
+    try {
+      setMarkingRead(notificationId);
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}/read`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
         setNotifications(prev => 
-          prev.map(notification => 
-            notification._id === notificationId 
-              ? { ...notification, read: true }
-              : notification
+          prev.map(n => 
+            n._id === notificationId ? { ...n, read: true } : n
           )
         );
-        // Update unread counts after marking as read
-        updateUnreadCounts();
+        fetchStats(); // Refresh stats
       }
     } catch (error) {
       console.error('Failed to mark notification as read:', error);
+    } finally {
+      setMarkingRead(null);
     }
   };
 
   const markAllAsRead = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/notifications/mark-all-read`, {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/notifications/mark-all-read`, {
         method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-      
-      if (res.ok) {
-        setNotifications(prev => 
-          prev.map(notification => ({ ...notification, read: true }))
-        );
-        // Update unread counts after marking all as read
-        updateUnreadCounts();
+
+      if (response.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        fetchStats(); // Refresh stats
       }
     } catch (error) {
       console.error('Failed to mark all notifications as read:', error);
     }
   };
 
-  const deleteNotification = async (notificationId) => {
+  const deleteNotification = async (notificationId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}`, {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-      
-      if (res.ok) {
-        setNotifications(prev => 
-          prev.filter(notification => notification._id !== notificationId)
-        );
-        // Update unread counts after deleting
-        updateUnreadCounts();
+
+      if (response.ok) {
+        setNotifications(prev => prev.filter(n => n._id !== notificationId));
+        fetchStats(); // Refresh stats
       }
     } catch (error) {
       console.error('Failed to delete notification:', error);
     }
   };
 
-  const handleNotificationClick = (notification) => {
-    // Mark as read first
+  const handleNotificationClick = (notification: Notification) => {
+    // Mark as read if unread
     if (!notification.read) {
       markAsRead(notification._id);
     }
 
-    // Get user role from localStorage
-    const userRole = localStorage.getItem('role');
-
-    // Navigate based on notification type
-    switch (notification.type) {
-      case 'gig_proposal':
-        // Navigate to client proposals page
-        if (userRole === 'client') {
-          window.location.href = '/clients/proposals';
-        }
-        break;
-      case 'connection_request':
-        // Navigate to connections page
-        break;
-      case 'message':
-        // Navigate to messages page
-        window.location.href = '/messages';
-        break;
-      case 'gig_accepted':
-      case 'gig_rejected':
-        // Navigate to freelancer proposals page
-        if (userRole === 'freelancer') {
-          window.location.href = '/freelancer/proposals';
-        }
-        break;
-      default:
-        // For other types, just mark as read
-        break;
+    // Navigate based on action
+    if (notification.data?.action) {
+      switch (notification.data.action) {
+        case 'view_proposals':
+          router.push('/clients/proposals');
+          break;
+        case 'view_orders':
+          router.push('/orders');
+          break;
+        case 'view_messages':
+          router.push('/messages');
+          break;
+        case 'view_gig':
+          if (notification.data.gigId) {
+            router.push(`/gigs/${notification.data.gigId}`);
+          }
+          break;
+        case 'view_earnings':
+          router.push('/dashboard');
+          break;
+        case 'view_reviews':
+          router.push('/dashboard');
+          break;
+        case 'view_project':
+          if (notification.data.gigId) {
+            router.push(`/gigs/${notification.data.gigId}`);
+          }
+          break;
+        default:
+          break;
+      }
     }
   };
 
-  if (loading && notifications.length === 0) {
-    return (
-      <div className="container mx-auto p-4">
-        <div className="text-center">Loading notifications...</div>
-      </div>
-    );
-  }
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'new_proposal':
+        return '📝';
+      case 'proposal_accepted':
+        return '✅';
+      case 'proposal_rejected':
+        return '❌';
+      case 'gig_completed':
+        return '🎉';
+      case 'payment_received':
+        return '💰';
+      case 'new_message':
+        return '💬';
+      case 'order_created':
+        return '📋';
+      case 'order_status_updated':
+        return '🔄';
+      case 'new_gig':
+        return '🆕';
+      case 'gig_updated':
+        return '✏️';
+      case 'review_received':
+        return '⭐';
+      case 'milestone_reached':
+        return '🏆';
+      default:
+        return '🔔';
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'urgent':
+        return 'border-red-500 bg-red-50';
+      case 'high':
+        return 'border-orange-500 bg-orange-50';
+      case 'medium':
+        return 'border-blue-500 bg-blue-50';
+      case 'low':
+        return 'border-gray-500 bg-gray-50';
+      default:
+        return 'border-gray-300 bg-white';
+    }
+  };
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case 'proposal':
+        return 'bg-blue-100 text-blue-800';
+      case 'payment':
+        return 'bg-green-100 text-green-800';
+      case 'message':
+        return 'bg-purple-100 text-purple-800';
+      case 'gig':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'order':
+        return 'bg-indigo-100 text-indigo-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const loadMore = () => {
+    setPage(prev => prev + 1);
+  };
+
+  const resetPage = () => {
+    setPage(1);
+    setHasMore(true);
+  };
+
+  useEffect(() => {
+    resetPage();
+  }, [activeTab]);
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-6xl mx-auto px-4">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Notifications</h1>
+          <p className="text-gray-600">Stay updated with all your activities and updates</p>
+        </div>
+
+        {/* Stats Cards */}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+              <div className="text-sm text-gray-600">Total</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-red-600">{stats.unread}</div>
+              <div className="text-sm text-gray-600">Unread</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-blue-600">{stats.categories.proposal}</div>
+              <div className="text-sm text-gray-600">Proposals</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-green-600">{stats.categories.payment}</div>
+              <div className="text-sm text-gray-600">Payments</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-purple-600">{stats.categories.message}</div>
+              <div className="text-sm text-gray-600">Messages</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-yellow-600">{stats.categories.gig}</div>
+              <div className="text-sm text-gray-600">Gigs</div>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border">
+              <div className="text-2xl font-bold text-indigo-600">{stats.categories.order}</div>
+              <div className="text-sm text-gray-600">Orders</div>
+            </div>
+          </div>
+        )}
+
+        {/* Actions */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">Notifications</h1>
-          {notifications.length > 0 && (
+          <div className="flex gap-2">
+            {['all', 'unread', 'proposal', 'payment', 'message', 'gig', 'order'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as any)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
+                  activeTab === tab
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {stats && stats.unread > 0 && (
             <button
               onClick={markAllAsRead}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
               Mark All as Read
             </button>
           )}
         </div>
 
-        {notifications.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-gray-500">No notifications yet.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {notifications.map((notification) => (
-              <div
-                key={notification._id}
-                className={`p-4 border rounded-lg cursor-pointer hover:shadow-md transition-shadow ${
-                  notification.read ? 'bg-gray-50' : 'bg-white border-blue-200'
-                }`}
-                onClick={() => handleNotificationClick(notification)}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <p className="font-medium">{notification.title}</p>
-                    <p className="text-gray-600 text-sm">{notification.message}</p>
-                    <p className="text-gray-400 text-xs mt-1">
-                      {new Date(notification.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex space-x-2 ml-4">
-                    {!notification.read && (
-                      <button
-                        onClick={() => markAsRead(notification._id)}
-                        className="text-blue-500 hover:text-blue-700 text-sm"
-                      >
-                        Mark as Read
-                      </button>
-                    )}
-                    <button
-                      onClick={() => deleteNotification(notification._id)}
-                      className="text-red-500 hover:text-red-700 text-sm"
-                    >
-                      Delete
-                    </button>
+        {/* Notifications List */}
+        <div className="bg-white rounded-lg shadow-sm border">
+          {loading && page === 1 ? (
+            <div className="p-8 text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading notifications...</p>
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              <div className="text-6xl mb-4">🔔</div>
+              <p className="text-xl mb-2">No notifications</p>
+              <p className="text-sm">You&apos;re all caught up!</p>
+            </div>
+          ) : (
+            <>
+              {notifications.map((notification) => (
+                <div
+                  key={notification._id}
+                  className={`p-6 border-b border-gray-100 last:border-b-0 transition-colors hover:bg-gray-50 ${
+                    !notification.read ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    {/* Icon */}
+                    <div className="text-3xl flex-shrink-0">
+                      {getNotificationIcon(notification.type)}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h4 className="font-semibold text-gray-900">
+                          {notification.title}
+                        </h4>
+                        {!notification.read && (
+                          <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
+                        )}
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getCategoryColor(notification.category)}`}>
+                          {notification.category}
+                        </span>
+                        {notification.priority !== 'medium' && (
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPriorityColor(notification.priority)}`}>
+                            {notification.priority}
+                          </span>
+                        )}
+                      </div>
+                      
+                      <p className="text-gray-600 mb-3">
+                        {notification.message}
+                      </p>
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span>{new Date(notification.createdAt).toLocaleString()}</span>
+                          {notification.data?.sender && (
+                            <span>From: {notification.data.sender}</span>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2">
+                          {!notification.read && (
+                            <button
+                              onClick={() => markAsRead(notification._id)}
+                              disabled={markingRead === notification._id}
+                              className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {markingRead === notification._id ? 'Marking...' : 'Mark Read'}
+                            </button>
+                          )}
+                          
+                          <button
+                            onClick={() => handleNotificationClick(notification)}
+                            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+                          >
+                            View
+                          </button>
+                          
+                          <button
+                            onClick={() => deleteNotification(notification._id)}
+                            className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-            
-            {hasMore && (
-              <button
-                onClick={() => setPage(prev => prev + 1)}
-                className="w-full py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-              >
-                Load More
-              </button>
-            )}
-          </div>
-        )}
+              ))}
+
+              {/* Load More */}
+              {hasMore && (
+                <div className="p-6 text-center border-t border-gray-100">
+                  <button
+                    onClick={loadMore}
+                    disabled={loading}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Loading...' : 'Load More'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

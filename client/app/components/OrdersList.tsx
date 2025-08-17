@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../lib/auth.js';
+import { useRouter } from 'next/navigation';
 
 interface Order {
   _id: string;
@@ -25,6 +27,7 @@ export default function OrdersList({ userId, role }: OrdersListProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const router = useRouter();
 
   useEffect(() => {
     fetchOrders();
@@ -32,80 +35,141 @@ export default function OrdersList({ userId, role }: OrdersListProps) {
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/payments/orders/${userId}/${role}`, {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching orders');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/orders`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
       if (response.ok) {
         const data = await response.json();
         setOrders(data);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        setError('Failed to fetch orders');
+        console.error('Failed to fetch orders:', response.status);
       }
     } catch (error) {
-      setError('Failed to fetch orders');
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch orders:', error);
     }
   };
 
-  const updateOrderStatus = async (orderId: string, status: string) => {
+  const markAsCompleted = async (orderId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/payments/orders/${orderId}/status`, {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for marking order as completed');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}/complete`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ status })
+          'Authorization': `Bearer ${token}`
+        }
       });
 
       if (response.ok) {
-        fetchOrders();
+        // Update local state
+        setOrders(prev => 
+          prev.map(order => 
+            order._id === orderId 
+              ? { ...order, status: 'completed' }
+              : order
+          )
+        );
+        alert('Order marked as completed successfully!');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        setError('Failed to update order status');
+        alert('Failed to mark order as completed');
       }
     } catch (error) {
-      setError('Failed to update order status');
+      console.error('Error marking order as completed:', error);
+      alert('Failed to mark order as completed');
     }
   };
 
-  const submitReview = async (orderId: string, rating: number, comment: string) => {
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
-      // Find the order to get gig and user information
-      const order = orders.find(o => o._id === orderId);
-      if (!order) {
-        setError('Order not found');
-        return;
-      }
-
-      // Get current user role from localStorage
-      const userRole = localStorage.getItem('role');
-      if (!userRole) {
-        setError('User role not found');
-        return;
-      }
-
-      // Determine the target user for the review
-      const targetId = userRole === 'client' ? order.freelancerEmail : order.clientEmail;
+      const token = getToken();
       
-      if (!targetId) {
-        setError('Target user not found');
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for updating order status');
         return;
       }
+
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      if (response.ok) {
+        // Update local state
+        setOrders(prev => 
+          prev.map(order => 
+            order._id === orderId 
+              ? { ...order, status: newStatus }
+              : order
+          )
+        );
+        alert(`Order status updated to ${newStatus} successfully!`);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        alert('Failed to update order status');
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      alert('Failed to update order status');
+    }
+  };
+
+  const submitReview = async (orderId, rating, comment) => {
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for submitting review');
+        return;
+      }
+
+      const order = orders.find(o => o._id === orderId);
+      if (!order) return;
+
+      const targetId = order.freelancerEmail || order.clientEmail;
+      const reviewType = order.freelancerEmail ? 'freelancer' : 'client';
 
       const response = await fetch(`${API_BASE_URL}/api/reviews`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          reviewType: 'gig',
+          reviewType: reviewType,
           targetId: targetId,
-          gigId: order.gigId,
           orderId: orderId,
           rating: rating,
           comment: comment,
@@ -114,15 +178,21 @@ export default function OrdersList({ userId, role }: OrdersListProps) {
       });
 
       if (response.ok) {
-        fetchOrders();
         alert('Review submitted successfully!');
+        // Refresh orders
+        fetchOrders();
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
         const errorData = await response.json();
-        setError(errorData.message || 'Failed to submit review');
+        alert(errorData.message || 'Failed to submit review');
       }
     } catch (error) {
-      console.error('Review submission error:', error);
-      setError('Failed to submit review');
+      console.error('Error submitting review:', error);
+      alert('Failed to submit review');
     }
   };
 

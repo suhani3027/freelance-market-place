@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../lib/auth';
 
 export default function LandingPage() {
   const router = useRouter();
@@ -17,16 +18,29 @@ export default function LandingPage() {
   const checkAuthentication = () => {
     if (typeof window === 'undefined') return;
     
-    const token = localStorage.getItem('token');
-    const email = localStorage.getItem('email');
-    const role = localStorage.getItem('role');
-    
-    if (token && email && role) {
-      setIsAuthenticated(true);
-      setUser({ email, role });
+    try {
+      const token = getToken();
+      const userData = getUser();
+      
+      if (token && userData && isValidTokenFormat(token)) {
+        setIsAuthenticated(true);
+        setUser(userData);
+      } else {
+        setIsAuthenticated(false);
+        setUser(null);
+        // Clear invalid auth data
+        if (token || userData) {
+          clearAuthData();
+        }
+      }
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      setIsAuthenticated(false);
+      setUser(null);
+      clearAuthData();
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleDashboardRedirect = () => {
@@ -43,7 +57,7 @@ export default function LandingPage() {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-8 h-4 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p>Loading...</p>
         </div>
       </div>
@@ -85,7 +99,7 @@ export default function LandingPage() {
                   </h2>
                 </div>
                 <p className="text-lg text-blue-100 mb-6">
-                  You're already logged in. Access your dashboard to continue managing your freelance business.
+                  You&apos;re already logged in. Access your dashboard to continue managing your freelance business.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <button 
@@ -96,46 +110,30 @@ export default function LandingPage() {
                   </button>
                   <button 
                     onClick={() => {
-                      localStorage.removeItem('token');
-                      localStorage.removeItem('email');
-                      localStorage.removeItem('role');
-                      window.location.reload();
+                      clearAuthData();
+                      setIsAuthenticated(false);
+                      setUser(null);
                     }}
-                    className="inline-flex items-center justify-center px-8 py-3 border-2 border-white text-base font-medium rounded-lg text-white hover:bg-white hover:text-blue-600 transition-colors duration-200"
+                    className="inline-flex items-center justify-center px-8 py-3 border border-white text-base font-medium rounded-lg text-white hover:bg-white hover:text-blue-600 transition-colors duration-200"
                   >
                     Logout
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="bg-white bg-opacity-20 backdrop-blur-sm rounded-2xl p-8 mb-12 border border-white border-opacity-30">
-                <div className="flex items-center justify-center space-x-4 mb-4">
-                  <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  </div>
-                  <h2 className="text-2xl md:text-3xl font-semibold text-white">
-                    Secure Access Required
-                  </h2>
-                </div>
-                <p className="text-lg text-blue-100 mb-6">
-                  Please login to access your personalized dashboard and start collaborating with our community.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <Link 
-                    href="/login" 
-                    className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-lg text-blue-600 bg-white hover:bg-gray-50 transition-colors duration-200 shadow-lg"
-                  >
-                    Sign In to Dashboard
-                  </Link>
-                  <Link 
-                    href="/register" 
-                    className="inline-flex items-center justify-center px-8 py-3 border-2 border-white text-base font-medium rounded-lg text-white hover:bg-white hover:text-blue-600 transition-colors duration-200"
-                  >
-                    Create Account
-                  </Link>
-                </div>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Link 
+                  href="/register"
+                  className="inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-lg text-blue-600 bg-white hover:bg-gray-50 transition-colors duration-200 shadow-lg"
+                >
+                  Get Started
+                </Link>
+                <Link 
+                  href="/login"
+                  className="inline-flex items-center justify-center px-8 py-3 border border-white text-base font-medium rounded-lg text-white hover:bg-white hover:text-blue-600 transition-colors duration-200"
+                >
+                  Sign In
+                </Link>
               </div>
             )}
           </div>

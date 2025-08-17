@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../../lib/api';
-import { useSocket } from '../../components/SocketProvider';
+import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../lib/auth.js';
 
 interface Proposal {
   _id: string;
@@ -31,33 +32,55 @@ interface Proposal {
   orderId?: string;
 }
 
-export default function ClientProposals() {
-  const { updateUnreadCounts } = useSocket();
+export default function ClientProposalsPage() {
+  const router = useRouter();
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [error, setError] = useState('');
-  const [userRole, setUserRole] = useState<string>('');
 
   useEffect(() => {
-    // Get user role from localStorage
-    const role = localStorage.getItem('role');
-    setUserRole(role || '');
-    fetchProposals();
-    
-    // Set up real-time updates
-    const interval = setInterval(() => {
-      fetchProposals();
-      updateUnreadCounts();
-    }, 30000); // Update every 30 seconds
+    checkAuthentication();
+  }, []);
 
-    return () => clearInterval(interval);
-  }, [updateUnreadCounts]);
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const token = getToken();
+      const userData = getUser();
+      
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      }
+      
+      // Check if user is a client
+      if (userData.role !== 'client') {
+        alert('Only clients can view proposals');
+        router.push('/dashboard');
+        return;
+      }
+      
+      setUser(userData);
+      fetchProposals();
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchProposals = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please log in to view proposals');
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching proposals');
         return;
       }
 
@@ -69,30 +92,36 @@ export default function ClientProposals() {
 
       if (response.ok) {
         const data = await response.json();
-        // Proposals fetched successfully
         setProposals(data);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        const errorData = await response.json();
-        setError(errorData.error || 'Failed to fetch proposals');
+        console.error('Failed to fetch proposals:', response.status);
+        setError('Failed to load proposals');
       }
     } catch (error) {
-      console.error('Error fetching proposals:', error);
-      setError('Failed to fetch proposals');
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch proposals:', error);
+      setError('Failed to load proposals');
     }
   };
 
-  const updateProposalStatus = async (proposalId: string, status: 'accepted' | 'rejected', feedback?: string) => {
+  const acceptProposal = async (proposalId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/api/proposals/${proposalId}/status`, {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for accepting proposal');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/proposals/${proposalId}/accept`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status, feedback })
+        }
       });
 
       if (response.ok) {
@@ -100,18 +129,62 @@ export default function ClientProposals() {
         setProposals(prev => 
           prev.map(proposal => 
             proposal._id === proposalId 
-              ? { ...proposal, status }
+              ? { ...proposal, status: 'accepted' }
               : proposal
           )
         );
-        alert(`Proposal ${status} successfully!`);
+        alert('Proposal accepted successfully!');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        const errorData = await response.json();
-        alert(`Failed to ${status} proposal: ${errorData.error}`);
+        alert('Failed to accept proposal');
       }
     } catch (error) {
-      console.error('Error updating proposal status:', error);
-      alert('Failed to update proposal status');
+      console.error('Error accepting proposal:', error);
+      alert('Failed to accept proposal');
+    }
+  };
+
+  const rejectProposal = async (proposalId: string) => {
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for rejecting proposal');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/proposals/${proposalId}/reject`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        // Update local state
+        setProposals(prev => 
+          prev.map(proposal => 
+            proposal._id === proposalId 
+              ? { ...proposal, status: 'rejected' }
+              : proposal
+          )
+        );
+        alert('Proposal rejected successfully!');
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        alert('Failed to reject proposal');
+      }
+    } catch (error) {
+      console.error('Error rejecting proposal:', error);
+      alert('Failed to reject proposal');
     }
   };
 
@@ -128,7 +201,7 @@ export default function ClientProposals() {
       // Prepare payment data
       const paymentData = {
         gigId: proposal.gigId?._id || proposal.gigId,
-        clientId: localStorage.getItem('email'), // Use current user's email as clientId
+        clientId: user?.email || getUser()?.email, // Use current user's email as clientId
         amount: Number(proposal.bidAmount),
         gigTitle: proposal.gigId?.title || 'Completed Project',
         proposalId: proposalId
@@ -139,7 +212,7 @@ export default function ClientProposals() {
       const response = await fetch(`${API_BASE_URL}/api/payments/create-checkout-session`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Authorization': `Bearer ${getToken()}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(paymentData)
@@ -185,10 +258,10 @@ export default function ClientProposals() {
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">
-            {userRole === 'client' ? 'Received Proposals' : 'My Proposals'}
+            {user?.role === 'client' ? 'Received Proposals' : 'My Proposals'}
           </h1>
           <p className="text-gray-600 mt-2">
-            {userRole === 'client' 
+            {user?.role === 'client' 
               ? 'Review and manage proposals from freelancers' 
               : 'Track the status of your submitted proposals'
             }
@@ -199,15 +272,15 @@ export default function ClientProposals() {
           <div className="text-center py-12">
             <div className="text-6xl mb-4">📝</div>
             <h3 className="text-xl font-semibold text-gray-900 mb-2">
-              {userRole === 'client' ? 'No proposals yet' : 'No proposals submitted'}
+              {user?.role === 'client' ? 'No proposals yet' : 'No proposals submitted'}
             </h3>
             <p className="text-gray-600">
-              {userRole === 'client' 
+              {user?.role === 'client' 
                 ? 'When freelancers submit proposals for your gigs, they\'ll appear here.'
                 : 'You haven\'t submitted any proposals yet. Browse available gigs and submit proposals!'
               }
             </p>
-            {userRole === 'freelancer' && (
+            {user?.role === 'freelancer' && (
               <button
                 onClick={() => window.location.href = '/explore'}
                 className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -247,7 +320,7 @@ export default function ClientProposals() {
                 <div className="grid md:grid-cols-2 gap-6">
                   {/* Profile Section */}
                   <div className="bg-gray-50 rounded-lg p-4">
-                    {userRole === 'client' ? (
+                    {user?.role === 'client' ? (
                       <>
                         <h4 className="font-semibold text-gray-900 mb-3">Freelancer Profile</h4>
                         <div className="flex items-center space-x-3 mb-3">
@@ -299,30 +372,30 @@ export default function ClientProposals() {
                   {/* Proposal Details */}
                   <div>
                     <h4 className="font-semibold text-gray-900 mb-2">
-                      {userRole === 'client' ? 'Proposal Message' : 'Your Proposal'}
+                      {user?.role === 'client' ? 'Proposal Message' : 'Your Proposal'}
                     </h4>
                     <p className="text-gray-700 mb-4">{proposal.proposal}</p>
                     
                     <div className="text-sm text-gray-600 mb-4">
                       <p>Submitted: {new Date(proposal.submittedAt).toLocaleDateString()}</p>
-                      {userRole === 'client' && (
+                      {user?.role === 'client' && (
                         <p>Bid Amount: ${proposal.bidAmount}</p>
                       )}
                     </div>
 
                                          {/* Action Buttons - Only for Clients */}
-                     {userRole === 'client' && (
+                     {user?.role === 'client' && (
                        <div className="space-y-2">
                          {proposal.status === 'pending' && (
                            <div className="flex space-x-2">
                              <button
-                               onClick={() => updateProposalStatus(proposal._id, 'accepted')}
+                               onClick={() => acceptProposal(proposal._id)}
                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
                              >
                                Accept Proposal
                              </button>
                              <button
-                               onClick={() => updateProposalStatus(proposal._id, 'rejected')}
+                               onClick={() => rejectProposal(proposal._id)}
                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium"
                              >
                                Reject Proposal
@@ -355,7 +428,7 @@ export default function ClientProposals() {
                      )}
                      
                      {/* Status Display for Freelancers */}
-                     {userRole === 'freelancer' && (
+                     {user?.role === 'freelancer' && (
                        <div className="space-y-2">
                          <div className={`w-full px-4 py-2 rounded-lg text-center text-sm font-medium ${
                            proposal.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :

@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api.js';
 import { useSocket } from './SocketProvider';
+import { getToken, getUser, clearAuthData, isValidTokenFormat } from '../../lib/auth.js';
 
 export default function Navbar() {
   const router = useRouter();
@@ -27,8 +28,8 @@ export default function Navbar() {
     checkAuth();
     // Update unread counts periodically
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('accessToken');
-      if (token) {
+      const token = getToken();
+      if (token && isValidTokenFormat(token)) {
         updateUnreadCounts();
         const interval = setInterval(updateUnreadCounts, 30000);
         return () => clearInterval(interval);
@@ -50,40 +51,40 @@ export default function Navbar() {
   const checkAuth = () => {
     if (typeof window === 'undefined') return;
     
-    // Use the new token format with fallback to old format
-    const accessToken = localStorage.getItem('accessToken');
-    const oldToken = localStorage.getItem('token');
-    const email = localStorage.getItem('email');
-    const role = localStorage.getItem('role');
-    const name = localStorage.getItem('name');
-    
-    const token = accessToken || oldToken;
-    
-    if (token && email && role) {
-      // Migrate old token to new format if needed
-      if (oldToken && !accessToken) {
-        localStorage.setItem('accessToken', oldToken);
-        localStorage.removeItem('token');
-        console.log('🔄 Migrated old token format to new format');
-      }
+    try {
+      const token = getToken();
+      const userData = getUser();
       
-      setUser({ email, role, name });
-    } else {
+      // Also check for legacy token format
+      const legacyToken = localStorage.getItem('token');
+      const legacyEmail = localStorage.getItem('email');
+      const legacyRole = localStorage.getItem('role');
+      
+      if (token && userData && isValidTokenFormat(token)) {
+        setUser(userData);
+      } else if (legacyToken && legacyEmail && legacyRole) {
+        // Handle legacy token format
+        setUser({ email: legacyEmail, role: legacyRole, name: localStorage.getItem('name') });
+      } else {
+        setUser(null);
+        // Clear invalid auth data
+        if (token || userData || legacyToken || legacyEmail || legacyRole) {
+          clearAuthData();
+        }
+      }
+    } catch (error) {
+      console.error('Error checking auth:', error);
       setUser(null);
+      clearAuthData();
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = () => {
     if (typeof window === 'undefined') return;
     
-    // Clear both old and new token formats
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('token');
-    localStorage.removeItem('email');
-    localStorage.removeItem('role');
-    localStorage.removeItem('name');
-    localStorage.removeItem('profilePhoto');
+    clearAuthData();
     setUser(null);
     window.location.href = '/';
   };

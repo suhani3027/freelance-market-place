@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../lib/auth.js';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -22,37 +23,55 @@ export default function ProtectedRoute({ children, fallback }: ProtectedRoutePro
   const checkAuthentication = async () => {
     if (typeof window === 'undefined') return;
     
-    const token = localStorage.getItem('token');
-    const email = localStorage.getItem('email');
-    
-    if (!token || !email) {
-      // User is not authenticated, redirect to login
-      router.push('/login');
-      return;
-    }
-    
     try {
-      // Verify token is still valid by making an API call
-      const response = await fetch(`${API_BASE_URL}/api/user/${encodeURIComponent(email)}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const token = getToken();
+      const userData = getUser();
+      
+      // Also check for legacy token format
+      const legacyToken = localStorage.getItem('token');
+      const legacyEmail = localStorage.getItem('email');
+      const legacyRole = localStorage.getItem('role');
+      
+      if (token && userData && isValidTokenFormat(token)) {
+        // Verify token is still valid by making an API call
+        const response = await fetch(`${API_BASE_URL}/api/user/${encodeURIComponent(userData.email)}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
 
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
+        if (response.ok) {
+          const userDataFromApi = await response.json();
+          setUser(userDataFromApi);
+          setIsAuthenticated(true);
+        } else if (response.status === 401) {
+          // Token expired or invalid
+          console.log('Token validation failed, clearing auth data and redirecting to login');
+          clearAuthData();
+          router.push('/login');
+          return;
+        } else {
+          // Other error
+          console.error('API error during authentication check:', response.status);
+          clearAuthData();
+          router.push('/login');
+          return;
+        }
+      } else if (legacyToken && legacyEmail && legacyRole) {
+        // Handle legacy token format
+        const legacyUser = { email: legacyEmail, role: legacyRole, name: localStorage.getItem('name') };
+        setUser(legacyUser);
         setIsAuthenticated(true);
-      } else if (response.status === 401) {
-        // Token expired or invalid
-        localStorage.removeItem('token');
-        localStorage.removeItem('email');
-        localStorage.removeItem('role');
+      } else {
+        // User is not authenticated, redirect to login
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
         router.push('/login');
         return;
       }
     } catch (error) {
       console.error('Failed to verify authentication:', error);
+      clearAuthData();
       router.push('/login');
       return;
     } finally {
@@ -65,7 +84,7 @@ export default function ProtectedRoute({ children, fallback }: ProtectedRoutePro
     return (
       <div className="container mx-auto p-4">
         <div className="text-center">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-8 h-4 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p>Verifying authentication...</p>
         </div>
       </div>

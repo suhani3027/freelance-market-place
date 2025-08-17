@@ -114,6 +114,15 @@ router.post('/', authenticateJWT, requireClientRole, parser.single('image'), asy
     
     // Send notification for gig creation - use the actual user ID from JWT token
     // await notifyGigCreated(gig._id, req.user.id, title);
+    
+    // Notify relevant freelancers about new gig
+    try {
+      const { notifyNewGigCreated } = await import('../services/notificationService.js');
+      await notifyNewGigCreated(gig.clientId, gig._id, gig.title, gig.skills, gig.amount);
+    } catch (notifError) {
+      console.log('Notification service not available:', notifError.message);
+    }
+    
     res.status(201).json(gig);
   } catch (error) {
     console.error('Gig creation error:', error);
@@ -218,35 +227,136 @@ router.get('/', async (req, res) => {
     
     // If clientId is provided, calculate statistics from orders
     if (clientId) {
-      const { Order } = await import('../models/order.js');
-      
-      // Calculate statistics for each gig
-      const gigsWithStats = await Promise.all(gigs.map(async (gig) => {
-        // Get orders for this gig
-        const orders = await Order.find({ gigId: gig._id.toString() });
+      try {
+        const { Order } = await import('../models/order.js');
         
-        // Calculate statistics
-        const completedOrders = orders.filter(order => order.status === 'completed');
-        const totalEarned = completedOrders.reduce((sum, order) => sum + order.amount, 0);
-        const totalViews = gig.views || 0; // This would need to be tracked separately
-        const avgRating = gig.rating || 0; // This would need to be calculated from reviews
+        // Calculate statistics for each gig
+        const gigsWithStats = await Promise.all(gigs.map(async (gig) => {
+          try {
+            // Get orders for this gig
+            const orders = await Order.find({ gigId: gig._id.toString() });
+            
+            // Calculate statistics
+            const completedOrders = orders.filter(order => order.status === 'completed');
+            const totalEarned = completedOrders.reduce((sum, order) => sum + order.amount, 0);
+            const totalViews = gig.views || 0; // This would need to be tracked separately
+            const avgRating = gig.rating || 0; // This would need to be calculated from reviews
+            
+            return {
+              ...gig.toObject(),
+              orders: orders.length,
+              earned: totalEarned,
+              views: totalViews,
+              rating: avgRating,
+              reviewCount: gig.reviewCount || 0
+            };
+          } catch (orderError) {
+            console.error('Error processing orders for gig:', gig._id, orderError);
+            // Return gig without order stats if there's an error
+            return {
+              ...gig.toObject(),
+              orders: 0,
+              earned: 0,
+              views: gig.views || 0,
+              rating: gig.rating || 0,
+              reviewCount: gig.reviewCount || 0
+            };
+          }
+        }));
         
-        return {
+        res.status(200).json(gigsWithStats);
+      } catch (importError) {
+        console.error('Error importing Order model:', importError);
+        // Return gigs without order stats if Order model can't be imported
+        const gigsWithBasicStats = gigs.map(gig => ({
           ...gig.toObject(),
-          orders: orders.length,
-          earned: totalEarned,
-          views: totalViews,
-          rating: avgRating,
+          orders: 0,
+          earned: 0,
+          views: gig.views || 0,
+          rating: gig.rating || 0,
           reviewCount: gig.reviewCount || 0
-        };
-      }));
-      
-      res.status(200).json(gigsWithStats);
+        }));
+        res.status(200).json(gigsWithBasicStats);
+      }
     } else {
       res.status(200).json(gigs);
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Get user's own gigs - AUTHENTICATED USERS ONLY
+router.get('/my-gigs', authenticateJWT, async (req, res) => {
+  try {
+    const userEmail = req.user.email;
+    
+    // Find gigs where the user is the client
+    const myGigs = await Gig.find({ clientId: userEmail })
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    // If user has gigs, calculate statistics
+    if (myGigs.length > 0) {
+      try {
+        const { Order } = await import('../models/order.js');
+        
+        const gigsWithStats = await Promise.all(myGigs.map(async (gig) => {
+          try {
+            // Get orders for this gig
+            const orders = await Order.find({ gigId: gig._id.toString() });
+            
+            // Calculate statistics
+            const completedOrders = orders.filter(order => order.status === 'completed');
+            const totalEarned = completedOrders.reduce((sum, order) => sum + order.amount, 0);
+            const totalViews = gig.views || 0;
+            const avgRating = gig.rating || 0;
+            
+            return {
+              ...gig,
+              orders: orders.length,
+              earned: totalEarned,
+              views: totalViews,
+              rating: avgRating,
+              reviewCount: gig.reviewCount || 0
+            };
+          } catch (orderError) {
+            console.error('Error processing orders for gig:', gig._id, orderError);
+            // Return gig without order stats if there's an error
+            return {
+              ...gig,
+              orders: 0,
+              earned: 0,
+              views: gig.views || 0,
+              rating: gig.rating || 0,
+              reviewCount: gig.reviewCount || 0
+            };
+          }
+        }));
+        
+        res.status(200).json(gigsWithStats);
+      } catch (importError) {
+        console.error('Error importing Order model:', importError);
+        // Return gigs without order stats if Order model can't be imported
+        const gigsWithBasicStats = myGigs.map(gig => ({
+          ...gig,
+          orders: 0,
+          earned: 0,
+          views: gig.views || 0,
+          rating: gig.rating || 0,
+          reviewCount: gig.reviewCount || 0
+        }));
+        res.status(200).json(gigsWithBasicStats);
+      }
+    } else {
+      res.status(200).json([]);
+    }
+  } catch (error) {
+    console.error('Error fetching my gigs:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch your gigs',
+      message: error.message 
+    });
   }
 });
 
@@ -267,6 +377,33 @@ router.get('/category/:category', async (req, res) => {
     res.status(200).json(gigs);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Get recent gigs - PUBLIC ENDPOINT (must come before /:id route)
+router.get('/recent', async (req, res) => {
+  try {
+    const recentGigs = await Gig.find({ status: 'active' })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+    
+    // Transform the data to include client name
+    const transformedGigs = recentGigs.map(gig => ({
+      _id: gig._id,
+      title: gig.title,
+      description: gig.description,
+      budget: gig.amount,
+      skills: gig.skills || gig.technology || [],
+      clientName: gig.clientId || 'Anonymous',
+      createdAt: gig.createdAt,
+      status: gig.status
+    }));
+    
+    res.json(transformedGigs);
+  } catch (error) {
+    console.error('Error fetching recent gigs:', error);
+    res.status(500).json({ message: 'Failed to fetch recent gigs' });
   }
 });
 
@@ -333,6 +470,77 @@ router.patch('/:id/toggle-status', authenticateJWT, requireClientRole, async (re
   }
 });
 
+// Mark gig as complete - FREELANCER ONLY
+router.put('/:id/complete', authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const freelancerId = req.user.email;
+    
+    // Check if user is a freelancer
+    const user = await User.findOne({ email: freelancerId });
+    if (!user || user.role !== 'freelancer') {
+      return res.status(403).json({ error: 'Only freelancers can mark gigs as complete' });
+    }
+    
+    // Find the gig
+    const gig = await Gig.findById(id);
+    if (!gig) {
+      return res.status(404).json({ error: 'Gig not found' });
+    }
+    
+    // Find the accepted proposal for this gig
+    const { Proposal } = await import('../models/proposal.js');
+    const proposal = await Proposal.findOne({ 
+      gigId: id, 
+      freelancerId: freelancerId,
+      status: 'accepted'
+    });
+    
+    if (!proposal) {
+      return res.status(404).json({ error: 'No accepted proposal found for this gig' });
+    }
+    
+    // Update proposal status to completed
+    proposal.status = 'completed';
+    proposal.completedAt = new Date();
+    await proposal.save();
+    
+    // Create order for payment
+    const { Order } = await import('../models/order.js');
+    const order = new Order({
+      gigId: id,
+      clientId: gig.clientId,
+      freelancerId: freelancerId,
+      amount: proposal.bidAmount,
+      status: 'pending_payment',
+      gigTitle: gig.title,
+      clientEmail: gig.clientId,
+      freelancerEmail: freelancerId,
+      description: `Payment for completed project: ${gig.title}`
+    });
+    
+    await order.save();
+    
+    // Send notification to client about completion
+    try {
+      const { notifyGigCompleted } = await import('../services/notificationService.js');
+      await notifyGigCompleted(gig.clientId, freelancerId, id, gig.title, user.name || user.email);
+    } catch (notifError) {
+      console.log('Notification service not available:', notifError.message);
+    }
+    
+    res.json({
+      message: 'Gig marked as complete successfully',
+      proposal: proposal,
+      order: order
+    });
+    
+  } catch (error) {
+    console.error('Mark gig complete error:', error);
+    res.status(500).json({ error: 'Failed to mark gig as complete' });
+  }
+});
+
 // Delete a gig - CLIENT ONLY (and only their own gigs)
 router.delete('/:id', authenticateJWT, requireClientRole, async (req, res) => {
   try {
@@ -375,32 +583,6 @@ router.post('/upload', authenticateJWT, requireClientRole, parser.single('image'
   }
 });
 
-// Get recent gigs - PUBLIC ENDPOINT
-router.get('/recent', async (req, res) => {
-  try {
-    const recentGigs = await Gig.find({ status: 'active' })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .populate('clientId', 'name email')
-      .lean();
-    
-    // Transform the data to include client name
-    const transformedGigs = recentGigs.map(gig => ({
-      _id: gig._id,
-      title: gig.title,
-      description: gig.description,
-      budget: gig.amount,
-      skills: gig.skills || gig.technology || [],
-      clientName: gig.clientId?.name || gig.clientId?.email || 'Anonymous',
-      createdAt: gig.createdAt,
-      status: gig.status
-    }));
-    
-    res.json(transformedGigs);
-  } catch (error) {
-    console.error('Error fetching recent gigs:', error);
-    res.status(500).json({ message: 'Failed to fetch recent gigs' });
-  }
-});
+
 
 export default router; 

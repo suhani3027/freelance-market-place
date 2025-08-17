@@ -27,8 +27,8 @@ router.get('/user/:userId', authenticateJWT, getUserReviews);
 // Get review statistics for a user (public)
 router.get('/stats/:userId', getReviewStats);
 
-// Mark review as helpful (public)
-router.put('/:reviewId/helpful', markReviewHelpful);
+// Mark review as helpful (protected)
+router.put('/:reviewId/helpful', authenticateJWT, markReviewHelpful);
 
 // Delete a review (protected)
 router.delete('/:reviewId', authenticateJWT, deleteReview);

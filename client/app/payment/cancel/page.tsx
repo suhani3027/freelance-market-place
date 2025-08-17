@@ -36,7 +36,7 @@ export default function PaymentCancelPage() {
             <h4 className="font-semibold text-yellow-800 mb-2">Need Help?</h4>
             <p className="text-sm text-yellow-700">
               If you encountered any issues during payment, please contact our support team. 
-              We're here to help you complete your purchase.
+              We&apos;re here to help you complete your purchase.
             </p>
           </div>
         </div>

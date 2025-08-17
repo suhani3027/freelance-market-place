@@ -7,7 +7,7 @@ const orderSchema = new mongoose.Schema({
   amount: { type: Number, required: true },
   status: { 
     type: String, 
-    enum: ['pending', 'paid', 'in_progress', 'completed', 'cancelled'],
+    enum: ['pending', 'ongoing', 'paid', 'in_progress', 'completed', 'cancelled', 'pending_payment'],
     default: 'pending'
   },
   stripePaymentIntentId: { type: String },

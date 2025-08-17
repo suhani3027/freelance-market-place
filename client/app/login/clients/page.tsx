@@ -2,11 +2,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { API_BASE_URL } from '../../../lib/api';
+import { setAuthData } from '../../../lib/auth';
 
 export default function ClientLogin() {
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
   const [message, setMessage] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e: any) => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -17,6 +19,9 @@ export default function ClientLogin() {
       return;
     }
 
+    setIsLoading(true);
+    setMessage("");
+
     try {
       const res = await fetch(`${API_BASE_URL}/api/login`, {
         method: 'POST',
@@ -26,24 +31,37 @@ export default function ClientLogin() {
       
       const data = await res.json();
       if (res.ok) {
-        localStorage.setItem("accessToken", data.accessToken);
-        localStorage.setItem("refreshToken", data.refreshToken);
-        localStorage.setItem("role", data.role || "client");
-        localStorage.setItem("email", data.email || form.email);
-        localStorage.setItem("name", data.name || data.user?.name || form.email.split("@")[0]);
-        localStorage.setItem("profilePhoto", "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png");
-        
-        // Redirect based on role
-        if (data.role === 'freelancer') {
-          router.push("/dashboard");
+        // Validate tokens before storing
+        if (!data.accessToken || !data.refreshToken) {
+          setMessage("Invalid response from server - missing tokens.");
+          return;
+        }
+
+        // Use the new authentication system
+        const success = setAuthData(data.accessToken, data.refreshToken, {
+          email: data.email || form.email,
+          role: data.role || "client",
+          name: data.name || data.user?.name || form.email.split("@")[0]
+        });
+
+        if (success) {
+          // Redirect based on role
+          if (data.role === 'freelancer') {
+            router.push("/dashboard");
+          } else {
+            router.push("/dashboard");
+          }
         } else {
-          router.push("/dashboard");
+          setMessage("Failed to store authentication data. Please try again.");
         }
       } else {
         setMessage(data.message || data.error || "Login failed.");
       }
     } catch (err) {
+      console.error('Login error:', err);
       setMessage("Server error. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -58,6 +76,7 @@ export default function ClientLogin() {
           placeholder="Email"
           value={form.email}
           onChange={handleChange}
+          disabled={isLoading}
         />
         <input
           className="border p-2 rounded"
@@ -66,10 +85,15 @@ export default function ClientLogin() {
           placeholder="Password"
           value={form.password}
           onChange={handleChange}
+          disabled={isLoading}
         />
         {message && <div className="text-red-500">{message}</div>}
-        <button className="bg-blue-500 text-white py-2 rounded hover:bg-blue-600" type="submit">
-          Log In
+        <button 
+          className={`py-2 rounded text-white ${isLoading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'}`} 
+          type="submit"
+          disabled={isLoading}
+        >
+          {isLoading ? 'Logging in...' : 'Log In'}
         </button>
       </form>
     </div>

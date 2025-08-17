@@ -1,67 +1,157 @@
-"use client";
-import { useEffect, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../../lib/api';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../../lib/auth';
 
 export default function EditGigPage() {
-  const router = useRouter();
   const params = useParams();
-  const gigId = params?.id as string;
-
-  const [title, setTitle] = useState("");
-  const [amount, setAmount] = useState(0);
-  const [technology, setTechnology] = useState("");
-  const [duration, setDuration] = useState("");
-  const [description, setDescription] = useState("");
+  const router = useRouter();
+  const [gig, setGig] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState("");
+  const [user, setUser] = useState(null);
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    category: '',
+    budget: {
+      min: '',
+      max: ''
+    },
+    duration: '',
+    skills: [],
+    attachments: []
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    const fetchGig = async () => {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-        const res = await fetch(`${apiUrl}/api/gigs/${gigId}`);
-        if (!res.ok) throw new Error("Failed to fetch gig");
-        const data = await res.json();
-        setTitle(data.title);
-        setAmount(data.amount);
-        setTechnology(data.technology);
-        setDuration(data.duration);
-        setDescription(data.description);
-      } catch (err: any) {
-        setError(err.message || "Something went wrong");
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (gigId) fetchGig();
-  }, [gigId]);
+    checkAuthentication();
+  }, []);
 
-  const clientId = localStorage.getItem('email') || 'demo-client@email.com';
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSuccess("");
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
-      const res = await fetch(`${apiUrl}/api/gigs/${gigId}`, {
-        method: "PUT",
-        headers: { 
-          "Content-Type": "application/json",
-          // Ensure authenticated request; backend requires JWT and client role
-          "Authorization": `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({ title, amount, technology, duration, description, clientId }),
-      });
-      if (res.status === 401 || res.status === 403) {
-        throw new Error("Not authorized. Please log in as the gig owner (client) and try again.");
+      const token = getToken();
+      const userData = getUser();
+      
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       }
-      if (!res.ok) throw new Error("Failed to update gig");
-      setSuccess("Gig updated successfully!");
-      setTimeout(() => router.push("/my-gigs"), 1000);
-    } catch (err: any) {
-      setError(err.message || "Something went wrong");
+      
+      // Check if user is a client
+      if (userData.role !== 'client') {
+        alert('Only clients can edit gigs');
+        router.push('/dashboard');
+        return;
+      }
+      
+      setUser(userData);
+      fetchGigDetails();
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchGigDetails = async () => {
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching gig details');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/gigs/${params.id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const gigData = await response.json();
+        setGig(gigData);
+        
+        // Check if user owns this gig
+        if (gigData.clientEmail !== user?.email) {
+          alert('You can only edit your own gigs');
+          router.push('/my-gigs');
+          return;
+        }
+        
+        // Populate form with existing data
+        setFormData({
+          title: gigData.title || '',
+          description: gigData.description || '',
+          category: gigData.category || '',
+          budget: {
+            min: gigData.budget?.min || '',
+            max: gigData.budget?.max || ''
+          },
+          duration: gigData.duration || '',
+          skills: gigData.skills || [],
+          attachments: gigData.attachments || []
+        });
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        console.error('Failed to fetch gig details:', response.status);
+      }
+    } catch (error) {
+      console.error('Failed to fetch gig details:', error);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        setError('Authentication required. Please log in again.');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/gigs/${params.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (response.ok) {
+        setSuccess('Gig updated successfully!');
+        setTimeout(() => {
+          router.push('/my-gigs');
+        }, 1500);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to update gig');
+      }
+    } catch (error) {
+      console.error('Error updating gig:', error);
+      setError('Failed to update gig. Please try again.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -76,23 +166,23 @@ export default function EditGigPage() {
           className="border p-2 rounded"
           type="text"
           placeholder="Title"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
+          value={formData.title}
+          onChange={e => setFormData({ ...formData, title: e.target.value })}
           required
         />
         <textarea
           className="border p-2 rounded"
           placeholder="Description"
-          value={description}
-          onChange={e => setDescription(e.target.value)}
+          value={formData.description}
+          onChange={e => setFormData({ ...formData, description: e.target.value })}
           required
         />
         <input
           className="border p-2 rounded"
           type="number"
           placeholder="Amount (e.g. 500)"
-          value={amount}
-          onChange={e => setAmount(Number(e.target.value))}
+          value={formData.budget.max}
+          onChange={e => setFormData({ ...formData, budget: { ...formData.budget, max: e.target.value } })}
           min={0}
           required
         />

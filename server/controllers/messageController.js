@@ -3,16 +3,20 @@
 import { Message } from '../models/message.js';
 import { Connection } from '../models/connection.js';
 import { io } from '../server.js';
+import { notifyNewMessage } from '../services/notificationService.js';
 
 // Send a message (only between connected users)
 export const sendMessage = async (req, res) => {
   try {
-    const { recipientEmail, content } = req.body;
+    const { conversationId, content } = req.body;
     const senderEmail = req.user.email;
 
-    if (!recipientEmail || !content) {
-      return res.status(400).json({ message: 'Recipient email and content are required' });
+    if (!conversationId || !content) {
+      return res.status(400).json({ message: 'Conversation ID and content are required' });
     }
+
+    // Extract recipient email from conversation ID (format: conv_recipientEmail)
+    const recipientEmail = conversationId.replace('conv_', '');
 
     if (senderEmail === recipientEmail) {
       return res.status(400).json({ message: 'You cannot send a message to yourself' });
@@ -44,35 +48,52 @@ export const sendMessage = async (req, res) => {
       _id: message._id,
       content: message.content,
       timestamp: message.timestamp,
+      createdAt: message.timestamp,
       isRead: message.isRead,
-      sender: {
-        email: message.senderEmail,
-        name: message.senderEmail.split('@')[0],
-        profilePhoto: null
-      },
-      recipient: {
-        email: message.recipientEmail,
-        name: message.recipientEmail.split('@')[0]
-      }
+      sender: senderEmail,
+      recipient: recipientEmail,
+      senderEmail: senderEmail,
+      recipientEmail: recipientEmail
     };
 
     // Emit a real-time notification to the recipient's room
     try {
-      const senderName = enhancedMessage.sender.name || senderEmail;
+      const senderName = senderEmail.split('@')[0];
+      
+      // Create notification in database
+      await notifyNewMessage(
+        senderEmail,
+        recipientEmail,
+        senderName,
+        content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+        conversationId
+      );
+      
+      // Emit real-time notification via Socket.io
       io.to(recipientEmail).emit('notification', {
         type: 'new',
         notification: {
           id: `msg_${enhancedMessage._id}`,
-          type: 'message',
+          type: 'new_message',
           title: 'New Message',
           message: `${senderName} sent you a message`,
           data: {
             senderEmail,
-            content: enhancedMessage.content
+            content: enhancedMessage.content,
+            conversationId,
+            action: 'view_messages'
           },
           createdAt: new Date().toISOString()
         }
       });
+      
+      // Also emit to sender's room for confirmation
+      io.to(senderEmail).emit('message_sent', {
+        type: 'success',
+        message: 'Message sent successfully',
+        data: enhancedMessage
+      });
+      
     } catch (emitErr) {
       console.warn('Socket emit for new message failed (continuing):', emitErr.message);
     }
@@ -81,6 +102,68 @@ export const sendMessage = async (req, res) => {
   } catch (error) {
     console.error('Send message error:', error);
     res.status(500).json({ message: 'Failed to send message' });
+  }
+};
+
+// Get messages by conversation ID
+export const getMessagesByConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userEmail = req.user.email;
+
+    // Extract recipient email from conversation ID (format: conv_recipientEmail)
+    const otherUserEmail = conversationId.replace('conv_', '');
+
+    if (userEmail === otherUserEmail) {
+      return res.status(400).json({ message: 'Cannot get conversation with yourself' });
+    }
+
+    // Check if users are connected
+    const connection = await Connection.findOne({
+      $or: [
+        { requesterEmail: userEmail, recipientEmail: otherUserEmail, status: 'accepted' },
+        { requesterEmail: otherUserEmail, recipientEmail: userEmail, status: 'accepted' }
+      ]
+    });
+
+    if (!connection) {
+      return res.status(403).json({ message: 'You can only view conversations with connected users' });
+    }
+
+    const messages = await Message.find({
+      $or: [
+        { senderEmail: userEmail, recipientEmail: otherUserEmail },
+        { senderEmail: otherUserEmail, recipientEmail: userEmail }
+      ]
+    }).sort({ timestamp: 1 });
+
+    // Mark messages as read for the current user
+    await Message.updateMany(
+      {
+        senderEmail: otherUserEmail,
+        recipientEmail: userEmail,
+        isRead: false
+      },
+      { isRead: true }
+    );
+
+    // Enhance messages with sender information
+    const enhancedMessages = messages.map(message => ({
+      _id: message._id,
+      content: message.content,
+      timestamp: message.timestamp,
+      createdAt: message.timestamp,
+      isRead: message.isRead,
+      sender: message.senderEmail,
+      recipient: message.recipientEmail,
+      senderEmail: message.senderEmail,
+      recipientEmail: message.recipientEmail
+    }));
+
+    res.json(enhancedMessages);
+  } catch (error) {
+    console.error('Get messages by conversation error:', error);
+    res.status(500).json({ message: 'Failed to get messages' });
   }
 };
 
@@ -128,19 +211,12 @@ export const getConversation = async (req, res) => {
       _id: message._id,
       content: message.content,
       timestamp: message.timestamp,
+      createdAt: message.timestamp,
       isRead: message.isRead,
-      senderEmail: message.senderEmail, // Add this for client-side logic
-      recipientEmail: message.recipientEmail, // Add this for client-side logic
-      createdAt: message.timestamp, // Add this for client-side time display
-      sender: {
-        email: message.senderEmail,
-        name: message.senderEmail.split('@')[0], // Use email prefix as name for now
-        profilePhoto: null
-      },
-      recipient: {
-        email: message.recipientEmail,
-        name: message.recipientEmail.split('@')[0]
-      }
+      sender: message.senderEmail,
+      recipient: message.recipientEmail,
+      senderEmail: message.senderEmail,
+      recipientEmail: message.recipientEmail
     }));
 
     res.json(enhancedMessages);
@@ -171,11 +247,12 @@ export const getUserConversations = async (req, res) => {
       if (!conversations[partnerEmail]) {
         conversations[partnerEmail] = {
           _id: `conv_${partnerEmail}`,
-          otherUser: partnerEmail, // This should be a string, not an object
-          lastMessage: {
-            content: message.content,
-            timestamp: message.timestamp
-          },
+          participants: [
+            { email: userEmail, name: userEmail.split('@')[0] },
+            { email: partnerEmail, name: partnerEmail.split('@')[0] }
+          ],
+          lastMessage: message.content,
+          lastMessageTime: message.timestamp,
           unreadCount: 0
         };
       }
@@ -188,7 +265,7 @@ export const getUserConversations = async (req, res) => {
 
     // Convert to array and sort by last message time
     const conversationsArray = Object.values(conversations).sort((a, b) => 
-      new Date(b.lastMessage.timestamp) - new Date(a.lastMessage.timestamp)
+      new Date(b.lastMessageTime) - new Date(a.lastMessageTime)
     );
 
     res.json(conversationsArray);

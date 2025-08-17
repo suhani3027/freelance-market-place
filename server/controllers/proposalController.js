@@ -2,7 +2,7 @@ import { Proposal } from '../models/proposal.js';
 import { Gig } from '../models/gig.js';
 import { FreelancerProfile } from '../models/freelancerProfile.js';
 import { User } from '../models/user.js';
-// import { createNotification } from '../services/notificationService.js';
+import { notifyNewProposal } from '../services/notificationService.js';
 
 // Submit a proposal - FREELANCER ONLY
 export const submitProposal = async (req, res) => {
@@ -41,13 +41,10 @@ export const submitProposal = async (req, res) => {
       return res.status(400).json({ error: 'You have already submitted a proposal for this gig' });
     }
 
-    // Get freelancer profile
+    // Get freelancer profile (optional - for display purposes only)
     const freelancerProfile = await FreelancerProfile.findOne({ email: freelancerId });
-    if (!freelancerProfile) {
-      return res.status(400).json({ error: 'Please complete your freelancer profile before submitting proposals' });
-    }
-
-    // Create proposal
+    
+    // Create proposal with available profile data or defaults
     const newProposal = new Proposal({
       gigId,
       freelancerId,
@@ -55,39 +52,45 @@ export const submitProposal = async (req, res) => {
       proposal,
       bidAmount,
       estimatedDuration,
-      freelancerProfile: {
-        name: freelancerProfile.fullName || freelancerProfile.name,
-        title: freelancerProfile.title,
-        overview: freelancerProfile.overview,
-        skills: freelancerProfile.skills,
-        hourlyRate: freelancerProfile.hourlyRate,
-        experienceLevel: freelancerProfile.experienceLevel,
-        location: freelancerProfile.location,
+      freelancerProfile: freelancerProfile ? {
+        name: freelancerProfile.fullName || freelancerProfile.name || 'Freelancer',
+        title: freelancerProfile.title || 'Freelancer',
+        overview: freelancerProfile.overview || 'No overview provided',
+        skills: freelancerProfile.skills || ['General'],
+        hourlyRate: freelancerProfile.hourlyRate || 0,
+        experienceLevel: freelancerProfile.experienceLevel || 'Not specified',
+        location: freelancerProfile.location || 'Not specified',
         profilePhoto: freelancerProfile.profilePhoto
+      } : {
+        name: 'Freelancer',
+        title: 'Freelancer',
+        overview: 'No overview provided',
+        skills: ['General'],
+        hourlyRate: 0,
+        experienceLevel: 'Not specified',
+        location: 'Not specified'
       }
     });
 
     await newProposal.save();
 
     // Notify client about the new proposal (stored notification)
-    // try {
-    //   const clientUser = await User.findOne({ email: gig.clientId });
-    //   const freelancerUser = await User.findOne({ email: freelancerId });
-    //   if (clientUser && freelancerUser) {
-    //     await createNotification(
-    //       clientUser._id,
-    //       freelancerUser._id,
-    //       'gig_proposal',
-    //       'New Proposal Received',
-    //       `${freelancerUser.name || freelancerUser.email} submitted a proposal (${bidAmount})`,
-    //       newProposal._id,
-    //       'proposal',
-    //       { gigId: gig._id, bidAmount }
-    //     );
-    //   }
-    // } catch (notifyErr) {
-    //   console.error('Failed to create proposal notification:', notifyErr);
-    // }
+    try {
+      const clientUser = await User.findOne({ email: gig.clientId });
+      const freelancerUser = await User.findOne({ email: freelancerId });
+      if (clientUser && freelancerUser) {
+        await notifyNewProposal(
+          gig.clientId, // clientId
+          freelancerId, // freelancerId
+          gig._id, // gigId
+          gig.title, // gigTitle
+          freelancerUser.name || freelancerUser.email, // freelancerName
+          proposal // proposalPreview
+        );
+      }
+    } catch (notifyErr) {
+      console.error('Failed to create proposal notification:', notifyErr);
+    }
 
     res.status(201).json({
       message: 'Proposal submitted successfully',
@@ -113,7 +116,20 @@ export const submitProposal = async (req, res) => {
       });
     }
     
-    res.status(500).json({ error: 'Failed to submit proposal' });
+    // Provide more detailed error information
+    const errorMessage = error.message || 'Failed to submit proposal';
+    console.error('Detailed error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    res.status(500).json({ 
+      error: 'Failed to submit proposal',
+      details: errorMessage,
+      timestamp: new Date().toISOString()
+    });
   }
 };
 

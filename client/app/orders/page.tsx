@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { API_BASE_URL } from '../../lib/api';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../lib/auth.js';
+import ReviewSection from '../components/ReviewSection';
 
 interface Order {
   _id: string;
@@ -29,128 +31,78 @@ export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState('ongoing');
 
   useEffect(() => {
-    fetchUserData();
+    checkAuthentication();
   }, []);
 
-  const fetchUserData = async () => {
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
+    
     try {
-      const email = localStorage.getItem('email');
-      const token = localStorage.getItem('token');
+      const token = getToken();
+      const userData = getUser();
       
-      if (!email || !token) {
+      // Also check for legacy token format
+      const legacyToken = localStorage.getItem('token');
+      const legacyEmail = localStorage.getItem('email');
+      const legacyRole = localStorage.getItem('role');
+      
+      if (token && userData && isValidTokenFormat(token)) {
+        setUser(userData);
+        fetchOrders();
+      } else if (legacyToken && legacyEmail && legacyRole) {
+        // Handle legacy token format
+        const legacyUser = { email: legacyEmail, role: legacyRole, name: localStorage.getItem('name') };
+        setUser(legacyUser);
+        fetchOrders();
+      } else {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
         router.push('/login');
         return;
       }
+    } catch (error) {
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
+    }
+  };
 
-      const response = await fetch(`${API_BASE_URL}/api/user/${encodeURIComponent(email)}`, {
+  const fetchOrders = async () => {
+    try {
+      const token = getToken() || localStorage.getItem('token');
+      
+      if (!token) {
+        console.log('No valid token available for fetching orders');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/orders`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
       if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-        fetchOrders(email, userData.role);
+        const data = await response.json();
+        setOrders(data);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        console.error('Failed to fetch orders:', response.status);
       }
     } catch (error) {
-      console.error('Failed to fetch user data:', error);
-      setError('Failed to load user data');
+      console.error('Failed to fetch orders:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchOrders = async (email: string, role: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      let proposalsResponse;
-      if (role === 'freelancer') {
-        // Freelancers see all their accepted proposals
-        proposalsResponse = await fetch(`${API_BASE_URL}/api/proposals/freelancer/accepted`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      } else {
-        // Clients see accepted proposals for gigs they posted
-        proposalsResponse = await fetch(`${API_BASE_URL}/api/proposals/client`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      }
-
-      if (proposalsResponse.ok) {
-        const proposalsData = await proposalsResponse.json();
-        
-        // Filter proposals based on role
-        let filteredProposals;
-        if (role === 'freelancer') {
-          // Freelancers see all accepted proposals they submitted
-          filteredProposals = proposalsData.filter((proposal: any) => 
-            proposal.status === 'accepted' || proposal.status === 'completed' || proposal.status === 'paid'
-          );
-        } else {
-          // Clients see only accepted proposals for gigs they posted
-          filteredProposals = proposalsData.filter((proposal: any) => 
-            proposal.status === 'accepted' || proposal.status === 'completed' || proposal.status === 'paid'
-          );
-        }
-
-        // Transform proposals to orders with proper categorization
-        const transformedOrders = filteredProposals.map((proposal: any) => {
-          // Determine the actual status based on completion and payment
-          let orderStatus = 'ongoing'; // Default to ongoing
-          let isPaid = false;
-
-          if (proposal.status === 'completed') {
-            // Check if payment has been made
-            if (proposal.paid || proposal.status === 'paid') {
-              orderStatus = 'completed';
-              isPaid = true;
-            } else {
-              orderStatus = 'pending_payment';
-              isPaid = false;
-            }
-          } else if (proposal.status === 'accepted') {
-            orderStatus = 'ongoing';
-            isPaid = false;
-          }
-
-          return {
-            _id: proposal._id,
-            proposalId: proposal._id,
-            gigTitle: proposal.gigId?.title || proposal.gig?.title || 'Project',
-            amount: proposal.bidAmount || proposal.amount || 0,
-            status: orderStatus,
-            createdAt: proposal.submittedAt || proposal.createdAt || new Date().toISOString(),
-            completedAt: proposal.completedAt,
-            gigId: proposal.gigId?._id || proposal.gigId || proposal.gig?._id || '',
-            clientEmail: proposal.clientId || proposal.client?.email || '',
-            freelancerEmail: proposal.freelancerId || proposal.freelancer?.email || '',
-            description: proposal.proposal || proposal.description || '',
-            paid: isPaid
-          };
-        });
-        
-        setOrders(transformedOrders);
-        setError('');
-      } else {
-        setOrders([]);
-        setError('No accepted proposals found');
-      }
-    } catch (error) {
-      console.error('Error fetching orders:', error);
-      setOrders([]);
-      setError('Failed to fetch orders. Please try again later.');
-    }
-  };
-
   const markAsCompleted = async (orderId: string) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken() || localStorage.getItem('token');
       
       // Check if already completed
       const order = orders.find(o => o._id === orderId);
@@ -159,13 +111,13 @@ export default function OrdersPage() {
         return;
       }
       
-      if (order.status === 'completed' || order.status === 'pending_payment') {
+      if (['completed', 'pending_payment', 'paid'].includes(order.status)) {
         setError('This project is already marked as completed');
         return;
       }
 
       // Use the correct endpoint for marking as completed
-      const response = await fetch(`${API_BASE_URL}/api/proposals/${orderId}/complete`, {
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}/complete`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -175,11 +127,7 @@ export default function OrdersPage() {
 
       if (response.ok) {
         // Refresh orders
-        const email = localStorage.getItem('email');
-        const role = localStorage.getItem('role');
-        if (email && role) {
-          fetchOrders(email, role);
-        }
+        fetchOrders();
         alert('Project marked as completed!');
       } else {
         const errorData = await response.json();
@@ -191,63 +139,13 @@ export default function OrdersPage() {
     }
   };
 
-  const submitReview = async (orderId: string, rating: number, comment: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      const order = orders.find(o => o._id === orderId);
-      if (!order) {
-        setError('Order not found');
-        return;
-      }
 
-      const currentUserEmail = localStorage.getItem('email');
-      const targetId = user.role === 'client' ? order.freelancerEmail : order.clientEmail;
-      
-      if (!targetId) {
-        setError('Target user not found');
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/reviews`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          reviewType: 'gig',
-          targetId: targetId,
-          gigId: order.gigId,
-          orderId: orderId,
-          rating: rating,
-          comment: comment,
-          title: `Review for ${order.gigTitle}`
-        })
-      });
-
-      if (response.ok) {
-        const email = localStorage.getItem('email');
-        const role = localStorage.getItem('role');
-        if (email && role) {
-          fetchOrders(email, role);
-        }
-        alert('Review submitted successfully!');
-      } else {
-        const errorData = await response.json();
-        setError(errorData.message || 'Failed to submit review');
-      }
-    } catch (error) {
-      console.error('Review submission error:', error);
-      setError('Failed to submit review');
-    }
-  };
 
   const getFilteredOrders = () => {
     if (activeTab === 'ongoing') {
-      return orders.filter(order => order.status === 'ongoing');
+      return orders.filter(order => ['ongoing', 'in_progress', 'pending'].includes(order.status));
     } else if (activeTab === 'completed') {
-      return orders.filter(order => order.status === 'completed');
+      return orders.filter(order => ['completed', 'paid'].includes(order.status));
     } else if (activeTab === 'pending_payment') {
       return orders.filter(order => order.status === 'pending_payment');
     }
@@ -257,11 +155,15 @@ export default function OrdersPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed':
+      case 'paid':
         return 'bg-green-100 text-green-800';
       case 'pending_payment':
         return 'bg-yellow-100 text-yellow-800';
       case 'ongoing':
+      case 'in_progress':
         return 'bg-blue-100 text-blue-800';
+      case 'pending':
+        return 'bg-orange-100 text-orange-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -270,11 +172,16 @@ export default function OrdersPage() {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'ongoing':
+      case 'in_progress':
         return 'In Progress';
       case 'completed':
         return 'Completed & Paid';
+      case 'paid':
+        return 'Paid';
       case 'pending_payment':
         return 'Completed - Payment Pending';
+      case 'pending':
+        return 'Pending';
       default:
         return status.charAt(0).toUpperCase() + status.slice(1);
     }
@@ -300,8 +207,8 @@ export default function OrdersPage() {
   }
 
   const filteredOrders = getFilteredOrders();
-  const ongoingCount = orders.filter(o => o.status === 'ongoing').length;
-  const completedCount = orders.filter(o => o.status === 'completed').length;
+  const ongoingCount = orders.filter(o => ['ongoing', 'in_progress', 'pending'].includes(o.status)).length;
+  const completedCount = orders.filter(o => ['completed', 'paid'].includes(o.status)).length;
   const pendingPaymentCount = orders.filter(o => o.status === 'pending_payment').length;
 
   return (
@@ -398,7 +305,7 @@ export default function OrdersPage() {
                   const email = localStorage.getItem('email');
                   const role = localStorage.getItem('role');
                   if (email && role) {
-                    fetchOrders(email, role);
+                    fetchOrders();
                   }
                 }}
                 className="mt-2 text-sm text-red-600 hover:text-red-800 underline"
@@ -460,7 +367,7 @@ export default function OrdersPage() {
 
                   {/* Action Buttons */}
                   <div className="flex items-center space-x-3 pt-4 border-t border-gray-100">
-                    {user.role === 'freelancer' && order.status === 'ongoing' && (
+                    {user.role === 'freelancer' && ['ongoing', 'in_progress'].includes(order.status) && (
                       <button
                         onClick={() => markAsCompleted(order._id)}
                         className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -469,22 +376,6 @@ export default function OrdersPage() {
                       </button>
                     )}
                     
-                    {order.status === 'completed' && (
-                      <button
-                        onClick={() => {
-                          // Open review form
-                          const rating = prompt('Rate this project (1-5):');
-                          const comment = prompt('Leave a comment:');
-                          if (rating && comment) {
-                            submitReview(order._id, parseInt(rating), comment);
-                          }
-                        }}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Submit Review
-                      </button>
-                    )}
-
                     {user.role === 'client' && order.status === 'pending_payment' && (
                       <button
                         onClick={() => {
@@ -503,6 +394,20 @@ export default function OrdersPage() {
                     >
                       View Gig
                     </button>
+                  </div>
+                  
+                  {/* Reviews Section for this order */}
+                  <div className="mt-6">
+                    <ReviewSection
+                      type="gig"
+                      targetId={user.role === 'client' ? order.freelancerEmail : order.clientEmail}
+                      targetName={user.role === 'client' ? order.freelancerEmail : order.clientEmail}
+                      targetRole={user.role === 'client' ? 'freelancer' : 'client'}
+                      gigId={order.gigId}
+                      orderId={order._id}
+                      currentUserEmail={user?.email}
+                      currentUserRole={user?.role}
+                    />
                   </div>
                 </div>
               ))}

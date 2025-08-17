@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { API_BASE_URL } from '../../lib/api';
-import { getToken, getUser } from '../../lib/auth';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser } from '../../lib/auth.js';
 
 interface MessageButtonProps {
   recipientEmail: string;

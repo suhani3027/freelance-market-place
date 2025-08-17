@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_BASE_URL } from '../../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../../lib/auth.js';
 
 interface Proposal {
   _id: string;
@@ -33,6 +35,7 @@ interface Proposal {
 export default function FreelancerProposals() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [completingProposal, setCompletingProposal] = useState<string | null>(null);
   const router = useRouter();
 
@@ -44,18 +47,34 @@ export default function FreelancerProposals() {
 
   const fetchProposals = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/proposals/freelancer`, {
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching proposals');
+        return;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/proposals/freelancer`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
       if (response.ok) {
         const data = await response.json();
         setProposals(data);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else {
+        console.error('Failed to fetch proposals:', response.status);
+        setError('Failed to load proposals');
       }
     } catch (error) {
-      console.error('Error fetching proposals:', error);
+      console.error('Failed to fetch proposals:', error);
+      setError('Failed to load proposals');
     } finally {
       setLoading(false);
     }

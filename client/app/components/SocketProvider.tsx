@@ -2,6 +2,8 @@
 
 import { useEffect, createContext, useContext, useState, useCallback } from 'react';
 import { getSocket } from '../services/socket';
+import { getToken, getUser, isValidTokenFormat } from '../../lib/auth.js';
+import { API_BASE_URL } from '../../lib/api.js';
 
 interface SocketContextType {
   isConnected: boolean;
@@ -42,7 +44,7 @@ const ToastNotification = ({ notification, onClose }: { notification: any; onClo
       case 'message':
         return (
           <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
         );
       case 'order':
@@ -111,39 +113,50 @@ export default function SocketProvider({ children }: { children: React.ReactNode
 
   const fetchUnreadCounts = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      const token = getToken() || localStorage.getItem('token');
+      if (!token) {
+        console.log('No valid token available for fetching unread counts');
+        return;
+      }
 
       // Fetch unread message count
-      const messageResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/messages/unread-count`, {
+      const messageResponse = await fetch(`${API_BASE_URL}/api/messages/unread-count`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (messageResponse.ok) {
         const messageData = await messageResponse.json();
         setUnreadMessageCount(messageData.count || 0);
+      } else {
+        console.warn('Failed to fetch unread message count:', messageResponse.status);
       }
 
       // Fetch unread notification count
-      const notificationResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/notifications/unread-count`, {
+      const notificationResponse = await fetch(`${API_BASE_URL}/api/notifications/unread-count`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (notificationResponse.ok) {
         const notificationData = await notificationResponse.json();
         setUnreadNotificationCount(notificationData.count || 0);
+      } else {
+        console.warn('Failed to fetch unread notification count:', notificationResponse.status);
       }
     } catch (error) {
       console.error('Failed to fetch unread counts:', error);
+      // Don't throw error, just log it to avoid breaking the component
     }
   }, []);
 
   const sendTypingIndicator = useCallback((recipientEmail: string, isTyping: boolean) => {
     const socket = getSocket();
     if (socket && isConnected) {
-      socket.emit('typing', {
-        senderEmail: localStorage.getItem('email'),
-        recipientEmail,
-        isTyping
-      });
+      const userEmail = getUser()?.email || localStorage.getItem('email');
+      if (userEmail) {
+        socket.emit('typing', {
+          senderEmail: userEmail,
+          recipientEmail,
+          isTyping
+        });
+      }
     }
   }, [isConnected]);
 
@@ -158,10 +171,20 @@ export default function SocketProvider({ children }: { children: React.ReactNode
       setIsConnected(true);
       
       // Join user's room for notifications
-      const token = localStorage.getItem('token');
-      const email = localStorage.getItem('email');
-      if (token && email) {
-        socket.emit('join', { userId: email, room: email });
+      const token = getToken();
+      const userData = getUser();
+      
+      // Also check for legacy token format
+      const legacyToken = localStorage.getItem('token');
+      const legacyEmail = localStorage.getItem('email');
+      const legacyRole = localStorage.getItem('role');
+      
+      if (token && userData && isValidTokenFormat(token)) {
+        socket.emit('join', { userId: userData.email, room: userData.email });
+        // Fetch initial unread counts
+        fetchUnreadCounts();
+      } else if (legacyToken && legacyEmail && legacyRole) {
+        socket.emit('join', { userId: legacyEmail, room: legacyEmail });
         // Fetch initial unread counts
         fetchUnreadCounts();
       }
@@ -196,8 +219,8 @@ export default function SocketProvider({ children }: { children: React.ReactNode
 
     // Listen for typing indicators
     socket.on('userTyping', (data) => {
-      const userEmail = localStorage.getItem('email');
-      if (data.recipientEmail === userEmail) {
+      const userData = getUser();
+      if (userData && data.recipientEmail === userData.email) {
         if (data.isTyping) {
           setTypingUsers(prev => new Set(prev).add(data.senderEmail));
         } else {

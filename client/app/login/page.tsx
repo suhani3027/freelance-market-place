@@ -12,14 +12,14 @@ export default function LoginChoice() {
           onClick={() => router.push('/login/clients')}
         >
           <span className="text-4xl mb-2">👔</span>
-          <span className="text-xl font-semibold">I'm a client, hiring for a project</span>
+          <span className="text-xl font-semibold">I&apos;m a client, hiring for a project</span>
         </button>
         <button
           className="border rounded-lg p-8 flex flex-col items-center hover:shadow-lg"
           onClick={() => router.push('/login/freelancer')}
         >
           <span className="text-4xl mb-2">💻</span>
-          <span className="text-xl font-semibold">I'm a freelancer, looking for work</span>
+          <span className="text-xl font-semibold">I&apos;m a freelancer, looking for work</span>
         </button>
       </div>
     </div>

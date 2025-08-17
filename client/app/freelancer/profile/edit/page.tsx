@@ -2,11 +2,15 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../../lib/auth.js';
 
 export default function EditProfile() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [profile, setProfile] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('profile');
   
@@ -22,6 +26,15 @@ export default function EditProfile() {
   const [skillInput, setSkillInput] = useState('');
   const [languages, setLanguages] = useState<string[]>([]);
   const [languageInput, setLanguageInput] = useState('');
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
+  const [hourlyRate, setHourlyRate] = useState('');
+  const [experienceLevel, setExperienceLevel] = useState('');
+  const [location, setLocation] = useState('');
+  const [education, setEducation] = useState('');
+  const [certifications, setCertifications] = useState('');
+  const [portfolio, setPortfolio] = useState('');
+  const [linkedin, setLinkedin] = useState('');
+  const [github, setGithub] = useState('');
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -32,7 +45,7 @@ export default function EditProfile() {
           return;
         }
 
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/freelancer-profile/${encodeURIComponent(email)}`);
+        const res = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(email)}`);
         if (res.ok) {
           const data = await res.json();
           setProfile(data);
@@ -40,13 +53,62 @@ export default function EditProfile() {
           // Pre-fill the form with existing data
           setUsername(data.username || email.split('@')[0]);
           setEmail(email);
-          setFullName(data.fullName || '');
+          setFullName(data.fullName || data.name || '');
           setPhone(data.phone || '');
           setCountry(data.country || '');
           setTitle(data.title || '');
           setOverview(data.overview || '');
           setSkills(data.skills || []);
-          setLanguages(data.languages || []);
+          setLanguages(data.languages ? 
+            (Array.isArray(data.languages) && typeof data.languages[0] === 'string' ? 
+              data.languages : 
+              data.languages.map(lang => lang.name || lang)
+            ) : []
+          );
+          
+          // Load new fields
+          setHourlyRate(data.hourlyRate ? data.hourlyRate.toString() : '');
+          setExperienceLevel(data.experienceLevel || '');
+          setLocation(data.location || '');
+          
+          // Handle education - extract from array or use string
+          if (data.education) {
+            if (Array.isArray(data.education) && data.education.length > 0) {
+              setEducation(data.education[0].degree || data.education[0].school || '');
+            } else if (typeof data.education === 'string') {
+              setEducation(data.education);
+            }
+          }
+          
+          // Handle certifications - extract from array or use string
+          if (data.certifications) {
+            if (Array.isArray(data.certifications) && data.certifications.length > 0) {
+              setCertifications(data.certifications[0].name || '');
+            } else if (typeof data.certifications === 'string') {
+              setCertifications(data.certifications);
+            }
+          }
+          
+          // Handle portfolio - extract from array or use string
+          if (data.portfolio) {
+            if (Array.isArray(data.portfolio) && data.portfolio.length > 0) {
+              setPortfolio(data.portfolio[0].url || '');
+            } else if (typeof data.portfolio === 'string') {
+              setPortfolio(data.portfolio);
+            }
+          }
+          
+          // Handle social links - extract LinkedIn and GitHub
+          if (data.socialLinks && Array.isArray(data.socialLinks)) {
+            const linkedinLink = data.socialLinks.find(link => link.platform === 'LinkedIn');
+            const githubLink = data.socialLinks.find(link => link.platform === 'GitHub');
+            setLinkedin(linkedinLink ? linkedinLink.url : '');
+            setGithub(githubLink ? githubLink.url : '');
+          }
+          
+          // Debug log to see what data is being loaded
+          console.log('Loaded profile data:', data);
+          console.log('Phone number loaded:', data.phone);
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
@@ -58,46 +120,81 @@ export default function EditProfile() {
     fetchProfile();
   }, [router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    
+    setError('');
+    setSuccess('');
+
     try {
-      const email = localStorage.getItem('email');
-      if (!email) {
-        alert('Please log in again.');
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        setError('Authentication required. Please log in again.');
         return;
       }
 
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/freelancer-profile/${encodeURIComponent(email)}`, {
+      // Ensure all required fields are present
+      const profileData = {
+        fullName: fullName.trim(),
+        title: title.trim(),
+        overview: overview.trim(),
+        skills: skills.length > 0 ? skills : ['General'],
+        phone: phone || '',
+        country: country || '',
+        hourlyRate: hourlyRate || '0',
+        experienceLevel: experienceLevel || 'Beginner',
+        location: location || '',
+        education: education || '',
+        certifications: certifications || '',
+        portfolio: portfolio || '',
+        linkedin: linkedin || '',
+        github: github || '',
+        languages: languages.length > 0 ? languages : ['English'],
+        availability: 'Available',
+        role: 'freelancer'
+      };
+
+      console.log('Saving profile data:', profileData);
+      console.log('Phone number being saved:', phone);
+
+      const response = await fetch(`${API_BASE_URL}/api/freelancer-profile/${encodeURIComponent(email)}`, {
         method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          username,
-          fullName,
-          phone,
-          country,
-          title,
-          overview,
-          skills,
-          languages,
-        }),
+        body: JSON.stringify(profileData)
       });
-      
-      if (res.ok) {
-        alert('Profile updated successfully!');
-        // Trigger profile refresh on the profile page using custom event
-        window.dispatchEvent(new CustomEvent('profileUpdated'));
-        router.push('/freelancer/profile');
+
+      if (response.ok) {
+        const result = await response.json();
+        setSuccess('Profile updated successfully!');
+        setTimeout(() => {
+          router.push('/freelancer/profile');
+        }, 2000);
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
+      } else if (response.status === 400) {
+        const errorData = await response.json();
+        setError(errorData.message || 'Validation failed. Please check your input.');
+      } else if (response.status === 403) {
+        const errorData = await response.json();
+        setError(errorData.message || 'You can only update your own profile');
+      } else if (response.status === 500) {
+        const errorData = await response.json();
+        console.error('Server error:', errorData);
+        setError(errorData.message || 'Server error occurred while updating profile. Please try again.');
       } else {
-        const data = await res.json();
-        alert(data.message || 'Failed to update profile.');
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to update profile');
       }
-    } catch (err) {
-      alert('Server error. Please try again later.');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      setError('Failed to update profile. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -209,9 +306,21 @@ export default function EditProfile() {
 
         {/* Tab Content */}
         <div className="bg-white rounded-lg shadow-lg p-6">
-          {activeTab === 'profile' && (
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Profile Information</h2>
+                     {activeTab === 'profile' && (
+             <form onSubmit={handleSubmit} className="space-y-6">
+               <h2 className="text-xl font-semibold text-gray-900 mb-6">Profile Information</h2>
+               
+               {/* Error and Success Messages */}
+               {error && (
+                 <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+                   {error}
+                 </div>
+               )}
+               {success && (
+                 <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">
+                   {success}
+                 </div>
+               )}
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Username */}
@@ -264,7 +373,6 @@ export default function EditProfile() {
                     onChange={(e) => setFullName(e.target.value)}
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Enter full name"
-                    required
                   />
                 </div>
 
@@ -285,6 +393,8 @@ export default function EditProfile() {
                       placeholder="Enter phone number"
                     />
                   </div>
+                  {/* Debug display - remove this after testing */}
+                  <p className="text-xs text-gray-500 mt-1">Current phone: {phone || 'Not set'}</p>
                 </div>
               </div>
 
@@ -329,6 +439,110 @@ export default function EditProfile() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={4}
                   placeholder="Write a summary about your skills and experience..."
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  {overview.length} characters
+                </p>
+              </div>
+
+              {/* Hourly Rate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Hourly Rate ($)</label>
+                <input
+                  type="number"
+                  value={hourlyRate}
+                  onChange={(e) => setHourlyRate(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your hourly rate"
+                  min="0"
+                />
+              </div>
+
+              {/* Experience Level */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Experience Level</label>
+                <select
+                  value={experienceLevel}
+                  onChange={(e) => setExperienceLevel(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select experience level</option>
+                  <option value="Beginner">Beginner</option>
+                  <option value="Intermediate">Intermediate</option>
+                  <option value="Advanced">Advanced</option>
+                  <option value="Expert">Expert</option>
+                </select>
+              </div>
+
+              {/* Location */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Location</label>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter your location"
+                />
+              </div>
+
+              {/* Education */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Education</label>
+                <textarea
+                  value={education}
+                  onChange={(e) => setEducation(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                  placeholder="Enter your educational background..."
+                />
+              </div>
+
+              {/* Certifications */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Certifications</label>
+                <textarea
+                  value={certifications}
+                  onChange={(e) => setCertifications(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                  placeholder="Enter your certifications..."
+                />
+              </div>
+
+              {/* Portfolio */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Portfolio URL</label>
+                <input
+                  type="url"
+                  value={portfolio}
+                  onChange={(e) => setPortfolio(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://your-portfolio.com"
+                />
+              </div>
+
+              {/* LinkedIn */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">LinkedIn URL</label>
+                <input
+                  type="url"
+                  value={linkedin}
+                  onChange={(e) => setLinkedin(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://linkedin.com/in/your-profile"
+                />
+              </div>
+
+              {/* GitHub */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">GitHub URL</label>
+                <input
+                  type="url"
+                  value={github}
+                  onChange={(e) => setGithub(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://github.com/your-username"
                 />
               </div>
 

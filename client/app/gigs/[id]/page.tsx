@@ -2,20 +2,21 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { API_BASE_URL } from '../../../lib/api';
+import { API_BASE_URL } from '../../../lib/api.js';
+import { getToken, getUser, isValidTokenFormat, clearAuthData } from '../../../lib/auth.js';
+import Link from 'next/link';
+import ReviewSection from '../../components/ReviewSection';
 
 interface Gig {
   _id: string;
   title: string;
   description: string;
   amount: number;
-  technology: string;
   duration: string;
+  technology: string;
+  skills: string[];
   clientId: string;
-  createdAt?: string;
-  skills?: string[];
-  clientEmail?: string;
-  image?: string;
+  createdAt: string;
 }
 
 interface ClientInfo {
@@ -24,133 +25,91 @@ interface ClientInfo {
   profilePhoto?: string;
 }
 
-interface Review {
-  _id: string;
-  rating: number;
-  comment: string;
-  reviewerName: string;
-  reviewerEmail: string;
-  createdAt: string;
-}
-
 export default function GigDetailPage() {
   const params = useParams();
   const router = useRouter();
   const [gig, setGig] = useState<Gig | null>(null);
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
-  const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
   const [showApplyModal, setShowApplyModal] = useState(false);
-  const [showReviewModal, setShowReviewModal] = useState(false);
   const [coverLetter, setCoverLetter] = useState('');
   const [proposalAmount, setProposalAmount] = useState('');
   const [proposalSuccess, setProposalSuccess] = useState('');
   const [proposalError, setProposalError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-  const [submittingReview, setSubmittingReview] = useState(false);
-  const [hasCompleteProfile, setHasCompleteProfile] = useState(false);
 
   useEffect(() => {
-    if (params.id) {
-      fetchGigDetails(params.id as string);
-      fetchUserData();
-      fetchReviews(params.id as string);
-    }
-  }, [params.id]);
+    checkAuthentication();
+  }, []);
 
-  useEffect(() => {
-    if (user) {
-      checkProfileCompletion();
-    }
-  }, [user]);
-
-  const checkProfileCompletion = async () => {
-    if (!user || user.role !== 'freelancer') return;
+  const checkAuthentication = () => {
+    if (typeof window === 'undefined') return;
     
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/api/freelancer-profile/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const token = getToken();
+      const userData = getUser();
       
-      if (response.ok) {
-        const profile = await response.json();
-        // Check if profile has essential fields
-        const hasEssentialFields = profile.fullName && profile.title && profile.skills && profile.skills.length > 0;
-        setHasCompleteProfile(hasEssentialFields);
+      if (!token || !userData || !isValidTokenFormat(token)) {
+        console.log('No valid token or user data found, redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       }
+      
+      setUser(userData);
+      fetchGigDetails();
     } catch (error) {
-      console.error('Failed to check profile completion:', error);
+      console.error('Error checking authentication:', error);
+      clearAuthData();
+      router.push('/login');
     }
   };
 
-  const fetchUserData = async () => {
+  const fetchGigDetails = async () => {
     try {
-      const email = localStorage.getItem('email');
-      const token = localStorage.getItem('token');
+      const token = getToken();
       
-      if (!email || !token) {
+      if (!token || !isValidTokenFormat(token)) {
+        console.log('No valid token available for fetching gig details');
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/user/${encodeURIComponent(email)}`, {
+      const response = await fetch(`${API_BASE_URL}/api/gigs/${params.id}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error('Failed to fetch user data:', error);
-    }
-  };
-
-  const fetchGigDetails = async (gigId: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/gigs/${gigId}`);
       if (response.ok) {
         const gigData = await response.json();
         setGig(gigData);
         
         // Fetch client info
         if (gigData.clientId) {
-          const clientResponse = await fetch(`${API_BASE_URL}/api/user/${encodeURIComponent(gigData.clientId)}`);
+          const clientResponse = await fetch(`${API_BASE_URL}/api/user/${encodeURIComponent(gigData.clientId)}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
           if (clientResponse.ok) {
             const clientData = await clientResponse.json();
             setClientInfo(clientData);
           }
         }
+      } else if (response.status === 401) {
+        console.log('Token validation failed, clearing auth data and redirecting to login');
+        clearAuthData();
+        router.push('/login');
+        return;
       } else {
-        setError('Failed to fetch gig details');
+        console.error('Failed to fetch gig details:', response.status);
       }
     } catch (error) {
-      setError('Failed to fetch gig details');
+      console.error('Failed to fetch gig details:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchReviews = async (gigId: string) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/reviews/gig/${gigId}`);
-      if (response.ok) {
-        const reviewsData = await response.json();
-        setReviews(Array.isArray(reviewsData) ? reviewsData : []);
-      } else {
-        setReviews([]);
-      }
-    } catch (error) {
-      console.error('Failed to fetch reviews:', error);
-      setReviews([]);
     }
   };
 
@@ -162,7 +121,24 @@ export default function GigDetailPage() {
     setProposalError('');
     
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
+      
+      if (!token || !isValidTokenFormat(token)) {
+        setProposalError('Authentication required. Please log in again.');
+        return;
+      }
+      
+      // Validate form data before submission
+      if (!coverLetter || coverLetter.trim().length < 50) {
+        setProposalError('Cover letter must be at least 50 characters long.');
+        return;
+      }
+      
+      if (!proposalAmount || Number(proposalAmount) <= 0) {
+        setProposalError('Please enter a valid proposal amount.');
+        return;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/proposals`, {
         method: 'POST',
         headers: {
@@ -186,7 +162,7 @@ export default function GigDetailPage() {
         }, 2000);
       } else {
         const data = await response.json();
-        let errorMessage = data.message || 'Failed to submit proposal';
+        let errorMessage = 'Failed to submit proposal';
         
         // Provide more helpful error messages
         if (data.error) {
@@ -199,67 +175,20 @@ export default function GigDetailPage() {
           } else {
             errorMessage = data.error;
           }
+        } else if (data.message) {
+          errorMessage = data.message;
+        } else if (data.details) {
+          errorMessage = data.details;
         }
         
+        console.error('Proposal submission failed:', data);
         setProposalError(errorMessage);
       }
     } catch (error) {
-      setProposalError('Failed to submit proposal');
+      console.error('Proposal submission error:', error);
+      setProposalError('Network error. Please check your connection and try again.');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleSubmitReview = async () => {
-    if (!gig || !user) return;
-    
-    setSubmittingReview(true);
-    
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_BASE_URL}/api/reviews`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          reviewType: 'gig',
-          targetId: gig.clientId, // The client who created the gig
-          gigId: gig._id,
-          rating: reviewRating,
-          comment: reviewComment,
-          title: `Review for ${gig.title}`
-        }),
-      });
-
-      if (response.ok) {
-        alert('Review submitted successfully!');
-        setShowReviewModal(false);
-        setReviewRating(5);
-        setReviewComment('');
-        fetchReviews(gig._id);
-      } else {
-        const data = await response.json();
-        let errorMessage = data.message || 'Failed to submit review';
-        
-        // Provide more helpful error messages
-        if (data.message) {
-          if (data.message.includes('already reviewed')) {
-            errorMessage = 'You have already reviewed this gig. You can submit another review if needed.';
-          } else if (data.message.includes('Missing required fields')) {
-            errorMessage = 'Please fill in all required fields: rating and comment.';
-          } else {
-            errorMessage = data.message;
-          }
-        }
-        
-        alert(errorMessage);
-      }
-    } catch (error) {
-      alert('Failed to submit review');
-    } finally {
-      setSubmittingReview(false);
     }
   };
 
@@ -358,31 +287,11 @@ export default function GigDetailPage() {
           {/* Action Buttons */}
           {user && user.role === 'freelancer' && user.email !== gig.clientId && (
             <div className="flex gap-4">
-              {!hasCompleteProfile ? (
-                <div className="flex-1">
-                  <button
-                    disabled
-                    className="w-full bg-gray-400 text-white px-6 py-3 rounded-lg cursor-not-allowed font-medium"
-                  >
-                    Complete Profile First
-                  </button>
-                  <p className="text-sm text-gray-600 mt-2 text-center">
-                    Please complete your profile with skills and experience before applying
-                  </p>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowApplyModal(true)}
-                  className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  Apply Now
-                </button>
-              )}
               <button
-                onClick={() => setShowReviewModal(true)}
-                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                onClick={() => setShowApplyModal(true)}
+                className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
-                Write Review
+                Apply Now
               </button>
             </div>
           )}
@@ -411,39 +320,15 @@ export default function GigDetailPage() {
         </div>
 
         {/* Reviews Section */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Reviews</h2>
-            <span className="text-sm text-gray-600">{reviews.length} reviews</span>
-          </div>
-
-          {reviews.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No reviews yet. Be the first to review this gig!</p>
-          ) : (
-            <div className="space-y-4">
-              {reviews.map((review) => (
-                <div key={review._id} className="border-b border-gray-200 pb-4 last:border-b-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center">
-                      <div className="flex text-yellow-400 mr-2">
-                        {[...Array(5)].map((_, i) => (
-                          <svg key={i} className={`w-4 h-4 ${i < review.rating ? 'text-yellow-400' : 'text-gray-300'}`} fill="currentColor" viewBox="0 0 20 20">
-                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                          </svg>
-                        ))}
-                      </div>
-                      <span className="font-medium text-gray-900">{review.reviewerName}</span>
-                    </div>
-                    <span className="text-sm text-gray-500">
-                      {new Date(review.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <p className="text-gray-700">{review.comment}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ReviewSection
+          type="gig"
+          targetId={gig.clientId}
+          targetName={clientInfo?.name || gig.clientId || 'Anonymous Client'}
+          targetRole="client"
+          gigId={gig._id}
+          currentUserEmail={user?.email}
+          currentUserRole={user?.role}
+        />
       </div>
 
       {/* Apply Modal */}
@@ -491,56 +376,6 @@ export default function GigDetailPage() {
 
             {proposalError && <div className="text-red-500 mt-2">{proposalError}</div>}
             {proposalSuccess && <div className="text-green-600 mt-2">{proposalSuccess}</div>}
-          </div>
-        </div>
-      )}
-
-      {/* Review Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md relative">
-            <button 
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 text-2xl" 
-              onClick={() => setShowReviewModal(false)}
-            >
-              &times;
-            </button>
-            <h2 className="text-xl font-bold mb-4">Write a Review</h2>
-            
-            <div className="mb-4">
-              <label className="block font-medium mb-1">Rating</label>
-              <div className="flex text-2xl">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    onClick={() => setReviewRating(star)}
-                    className={`mr-1 ${star <= reviewRating ? 'text-yellow-400' : 'text-gray-300'}`}
-                  >
-                    ★
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <label className="block font-medium mb-1">Comment</label>
-              <textarea
-                className="border rounded w-full p-2 min-h-[100px]"
-                value={reviewComment}
-                onChange={(e) => setReviewComment(e.target.value)}
-                placeholder="Share your experience with this gig..."
-                required
-              />
-            </div>
-
-            <button
-              className="bg-green-600 text-white px-6 py-2 rounded font-semibold hover:bg-green-700 w-full disabled:bg-gray-400 disabled:cursor-not-allowed"
-              disabled={submittingReview || !reviewComment}
-              onClick={handleSubmitReview}
-            >
-              {submittingReview ? 'Submitting...' : 'Submit Review'}
-            </button>
           </div>
         </div>
       )}

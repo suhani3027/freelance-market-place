@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../lib/api';
-import { getToken, getUser } from '../../lib/auth';
+import { API_BASE_URL } from '../../lib/api.js';
+import { getToken, getUser } from '../../lib/auth.js';
 
 interface ConnectionButtonProps {
   targetEmail: string;
@@ -71,15 +71,20 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
     setIsLoading(true);
     try {
       const token = getToken();
-      const currentUser = getUser();
-      
-      if (!token || !currentUser) {
-        alert('Please login to send connection requests');
+      if (!token) {
+        alert('Please log in to send connection requests');
+        return;
+      }
+
+      // Get current user data
+      const userData = getUser();
+      if (!userData || !userData.email || !userData.name) {
+        alert('Please complete your profile before sending connection requests');
         return;
       }
 
       // Don't allow connecting with yourself
-      if (currentUser.email === targetEmail) {
+      if (userData.email === targetEmail) {
         alert('You cannot connect with yourself');
         return;
       }
@@ -101,16 +106,26 @@ export default function ConnectionButton({ targetEmail, className = "" }: Connec
         alert('Connection request sent successfully!');
       } else {
         const data = await res.json();
-        if (res.status === 400 && data.message?.includes('already exists')) {
-          // If connection already exists, check the status again
-          await checkConnectionStatus();
+        console.error('Connection request failed:', data);
+        
+        if (res.status === 400) {
+          if (data.message?.includes('already exists')) {
+            // If connection already exists, check the status again
+            await checkConnectionStatus();
+          } else if (data.message?.includes('Invalid user data')) {
+            alert('Please complete your profile before sending connection requests');
+          } else {
+            alert(data.message || 'Failed to send connection request');
+          }
+        } else if (res.status === 404) {
+          alert('User not found. Please check the email address.');
         } else {
           alert(data.message || 'Failed to send connection request');
         }
       }
     } catch (error) {
       console.error('Error sending connection request:', error);
-      alert('Failed to send connection request');
+      alert('Failed to send connection request. Please try again.');
     } finally {
       setIsLoading(false);
     }
